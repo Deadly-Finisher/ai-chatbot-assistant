@@ -9,14 +9,16 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "@langchain/community": "^1.1.28",
     "better-sqlite3": "^12.10.0",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
-    "dotenv": "^17.4.2",
+    "dotenv": "^16.6.1",
     "express": "^4.18.2",
     "fs-extra": "^11.2.0",
     "multer": "^2.1.1",
     "natural": "^6.12.0",
+    "tavily": "^2.0.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

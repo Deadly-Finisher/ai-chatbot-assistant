@@ -3,6 +3,7 @@
  * Features: RAG, Infinite Persistent Memory, Self-Learning, Anti-Hallucination
  * Based on: musix-amrita1611/ai-chatbot-assistant (Gemini AI + Space UI)
  */
+const { TavilySearchResults } = require('@langchain/community/tools/tavily_search');
 require('dotenv').config();
 
 const express = require('express');
