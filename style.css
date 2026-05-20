@@ -310,7 +310,7 @@ code {
 
 /* ─── CLOCK ─── */
 .digital-clock {
-  position: absolute; bottom: 20px; left: 20px; z-index: 100;
+  position: absolute; bottom: 150px; left: 20px; z-index: 100;
   text-align: left; width: 220px;
 }
 #clock-time {
