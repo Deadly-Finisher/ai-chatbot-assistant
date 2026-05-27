@@ -13,7 +13,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs-extra');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const { tavily } = require("@tavily/core");
 
 const {
@@ -32,13 +32,13 @@ app.use(express.static('.'));
 // ─────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-const genAI = new GoogleGenerativeAI(
-  GEMINI_API_KEY
-);
+const groq = new Groq({
+  apiKey: GROQ_API_KEY,
+});
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'llama-3.3-70b-versatile';
 
 const tavilyClient = tavily({
   apiKey: process.env.TAVILY_API_KEY,
@@ -285,7 +285,7 @@ class RAGAgent {
     this.memory = new MemoryStore();
     this.knowledge = new KnowledgeBase();
     this.sessions = new SessionStore();
-    this.model = genAI.getGenerativeModel({ model: MODEL });
+    this.model = groq;
   }
 
   buildSystemPrompt(query, sessionId) {
@@ -419,6 +419,7 @@ Realtime web search currently unavailable.
     }
 
     // Convert to Gemini format
+    // Convert conversation history to Groq/OpenAI format
     const history = recentMsgs
       .slice(0, -1)
       .filter(m =>
@@ -426,44 +427,22 @@ Realtime web search currently unavailable.
         m.role === 'assistant'
       )
       .map(m => ({
-        role:
-          m.role === 'user'
-            ? 'user'
-            : 'model',
-
-        parts: [{
-          text: m.content
-        }]
+        role: m.role,
+        content: m.content
       }));
 
-
-    // Gemini requires first role to be user
-    if (
-      history.length > 0 &&
-      history[0].role !== 'user'
-    ) {
-      history.shift();
-    }
-
-
-    const chat = this.model.startChat({
-
-      history,
-
-      systemInstruction: {
+    // Add system prompt
+    const messages = [
+      {
         role: 'system',
-        parts: [{
-          text: systemPrompt + webContext
-        }]
+        content: systemPrompt + webContext
       },
-
-      generationConfig: {
-        temperature: 0.7,
-        topP: 0.9,
-        maxOutputTokens: 1500,
+      ...history,
+      {
+        role: 'user',
+        content: userMessage
       }
-    });
-
+    ];
 
     // ─────────────────────────────────────────────
     // RETRY LOGIC
@@ -476,18 +455,21 @@ Realtime web search currently unavailable.
 
       try {
 
-        result =
-          await chat.sendMessage(userMessage);
+        result = await this.model.chat.completions.create({
+          model: MODEL,
+          messages,
+          temperature: 0.7,
+          max_tokens: 1500,
+          top_p: 0.9,
+        });
 
         break;
 
       } catch (err) {
 
-        if (err.message.includes('503')) {
+        console.log('⚠️ Groq API Error:', err.message);
 
-          console.log(
-            '⚠️ Gemini overloaded. Retrying...'
-          );
+        if (retries > 1) {
 
           await new Promise(resolve =>
             setTimeout(resolve, 3000)
@@ -506,12 +488,12 @@ Realtime web search currently unavailable.
     if (!result) {
 
       throw new Error(
-        'Gemini API unavailable after retries'
+        'Groq API unavailable after retries'
       );
     }
 
     const responseText =
-      result.response.text();
+      result.choices[0].message.content;
 
 
     // Store assistant response
@@ -679,5 +661,5 @@ const PORT = 5000;
 app.listen(PORT, () => {
   console.log(`\n🚀 RAG Agentic AI Chatbot running at http://localhost:${PORT}`);
   console.log(`📊 Memory stats: ${JSON.stringify(agent.memory.getStats())}`);
-  console.log(`\nMake sure GEMINI_API_KEY is set in your environment or in server.js\n`);
+  console.log(`\nMake sure GROQ_API_KEY is set in your .env file\n`);
 });
