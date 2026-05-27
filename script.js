@@ -8,6 +8,9 @@ const API = 'http://localhost:5000/api';
 // ── State ──────────────────────────────────────
 let currentSessionId = null;
 
+let authToken =
+  localStorage.getItem('token') || null;
+
 // ── DOM ────────────────────────────────────────
 const chatBox = document.getElementById('chat-box');
 const userInput = document.getElementById('user-input');
@@ -22,6 +25,117 @@ const tagKnowledge = document.getElementById('tag-knowledge');
 const feedbackBtn = document.getElementById('feedback-btn');
 const feedbackQ = document.getElementById('feedback-q');
 const feedbackA = document.getElementById('feedback-a');
+const uploadPdfBtn =
+  document.getElementById(
+    'upload-pdf-btn'
+  );
+
+const pdfUploadInput =
+  document.getElementById(
+    'pdf-upload'
+  );
+
+const authModal =
+  document.getElementById('auth-modal');
+
+const authUsername =
+  document.getElementById('auth-username');
+
+const authPassword =
+  document.getElementById('auth-password');
+
+const loginBtn =
+  document.getElementById('login-btn');
+
+const registerBtn =
+  document.getElementById('register-btn');
+
+const authStatus =
+  document.getElementById('auth-status');
+
+const logoutBtn =
+  document.getElementById('logout-btn');
+
+// ─────────────────────────────────────────────
+// PDF Upload
+// ─────────────────────────────────────────────
+
+uploadPdfBtn.addEventListener(
+  'click',
+  () => {
+
+    pdfUploadInput.click();
+  }
+);
+
+pdfUploadInput.addEventListener(
+  'change',
+  async (e) => {
+
+    const file =
+      e.target.files[0];
+
+    if (!file) return;
+
+    const formData =
+      new FormData();
+
+    formData.append(
+      'pdf',
+      file
+    );
+
+    try {
+
+      appendMessage(
+        'assistant',
+        `📄 Uploading ${file.name}...`
+      );
+
+      const res =
+        await fetch(
+          `${API}/pdf/upload`,
+          {
+            method: 'POST',
+
+            headers: {
+              'Authorization':
+                `Bearer ${authToken}`
+            },
+
+            body: formData
+          }
+        );
+
+      const data =
+        await res.json();
+
+      if (data.success) {
+
+        appendMessage(
+          'assistant',
+          `✅ PDF uploaded successfully!\n\nDocument: ${data.filename}\nChunks created: ${data.chunks}`
+        );
+
+      } else {
+
+        appendMessage(
+          'assistant',
+          `❌ Upload failed: ${data.error}`
+        );
+      }
+
+    } catch (err) {
+
+      console.error(err);
+
+      appendMessage(
+        'assistant',
+        '❌ PDF upload failed'
+      );
+    }
+  }
+);
 
 // ── Clock ──────────────────────────────────────
 function updateClock() {
@@ -37,7 +151,15 @@ updateClock();
 // ── Session Management ─────────────────────────
 async function loadSessions() {
   try {
-    const res = await fetch(`${API}/sessions`);
+    const res = await fetch(
+      `${API}/sessions`,
+      {
+        headers: {
+          'Authorization':
+            `Bearer ${authToken}`
+        }
+      }
+    );
     const { sessions } = await res.json();
     sessionList.innerHTML = '';
     sessions.forEach(s => {
@@ -53,7 +175,10 @@ async function loadSessions() {
 
 async function createSession() {
   const res = await fetch(`${API}/session`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`
+    },
     body: JSON.stringify({ title: 'New Mission' })
   });
   const { session } = await res.json();
@@ -65,7 +190,15 @@ async function createSession() {
 
 async function loadSession(sessionId) {
   currentSessionId = sessionId;
-  const res = await fetch(`${API}/session/${sessionId}`);
+  const res = await fetch(
+    `${API}/session/${sessionId}`,
+    {
+      headers: {
+        'Authorization':
+          `Bearer ${authToken}`
+      }
+    }
+  );
   const { session } = await res.json();
   chatBox.innerHTML = '';
   session.messages.forEach(m => appendMessage(m.role, m.content, false));
@@ -101,7 +234,10 @@ async function sendMessage() {
   try {
     const res = await fetch(`${API}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
       body: JSON.stringify({ sessionId: currentSessionId, message: text })
     });
     const data = await res.json();
@@ -123,7 +259,7 @@ async function sendMessage() {
     }
   } catch (err) {
     typingEl.remove();
-    appendMessage('assistant', '⚠️ Connection failed. Is the server running on port 3000?');
+    appendMessage('assistant', '⚠️ Connection failed. Is the server running on port 5000?');
     setStatus('DISCONNECTED', false);
   }
 }
@@ -198,19 +334,265 @@ feedbackBtn.addEventListener('click', async () => {
 
 // ── Event Listeners ────────────────────────────
 sendBtn.addEventListener('click', sendMessage);
-userInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
-newChatBtn.addEventListener('click', createSession);
+userInput.addEventListener(
+  'keydown',
+  e => {
+
+    // ENTER → SEND
+    if (
+      e.key === 'Enter' &&
+      !e.shiftKey
+    ) {
+
+      e.preventDefault();
+
+      sendMessage();
+    }
+
+    // SHIFT + ENTER → NEW LINE
+    if (
+      e.key === 'Enter' &&
+      e.shiftKey
+    ) {
+
+      const start =
+        userInput.selectionStart;
+
+      const end =
+        userInput.selectionEnd;
+
+      userInput.value =
+        userInput.value.substring(
+          0,
+          start
+        ) +
+        '\n' +
+        userInput.value.substring(
+          end
+        );
+
+      userInput.selectionStart =
+        userInput.selectionEnd =
+        start + 1;
+
+      e.preventDefault();
+    }
+  }
+);
+
+
+logoutBtn.addEventListener(
+  'click',
+  () => {
+
+    localStorage.removeItem(
+      'token'
+    );
+
+    authToken = null;
+
+    location.reload();
+  }
+);
+
+// ── AUTH ──────────────────────────────────────
+
+registerBtn.addEventListener('click', async () => {
+
+  const username =
+    authUsername.value.trim();
+
+  const password =
+    authPassword.value.trim();
+
+  if (!username || !password) {
+
+    authStatus.textContent =
+      'Enter username and password';
+
+    return;
+  }
+
+  authStatus.textContent =
+    'Creating account...';
+
+  try {
+
+    const res = await fetch(
+      `${API}/auth/register`,
+      {
+        method: 'POST',
+
+        headers: {
+          'Content-Type': 'application/json'
+        },
+
+        body: JSON.stringify({
+          username,
+          password
+        })
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.error) {
+
+      authStatus.textContent =
+        data.error;
+
+    } else {
+
+      authStatus.textContent =
+        '✅ Registration successful';
+
+    }
+
+  } catch (err) {
+
+    authStatus.textContent =
+      '⚠️ Registration failed';
+  }
+});
+
+
+
+loginBtn.addEventListener('click', async () => {
+
+  const username =
+    authUsername.value.trim();
+
+  const password =
+    authPassword.value.trim();
+
+  if (!username || !password) {
+
+    authStatus.textContent =
+      'Enter username and password';
+
+    return;
+  }
+
+  authStatus.textContent =
+    'Logging in...';
+
+  try {
+
+    const res = await fetch(
+      `${API}/auth/login`,
+      {
+        method: 'POST',
+
+        headers: {
+          'Content-Type': 'application/json'
+        },
+
+        body: JSON.stringify({
+          username,
+          password
+        })
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.error) {
+
+      authStatus.textContent =
+        data.error;
+
+      return;
+    }
+
+    // SAVE TOKEN
+    authToken = data.token;
+
+    localStorage.setItem(
+      'token',
+      data.token
+    );
+
+    // HIDE LOGIN MODAL
+    authModal.style.display =
+      'none';
+
+    authStatus.textContent = '';
+
+    // LOAD CHATBOT
+    await loadSessions();
+
+    const res2 = await fetch(
+      `${API}/sessions`,
+      {
+        headers: {
+          'Authorization':
+            `Bearer ${authToken}`
+        }
+      }
+    );
+
+    const sessionsData =
+      await res2.json();
+
+    if (
+      sessionsData.sessions.length > 0
+    ) {
+
+      await loadSession(
+        sessionsData.sessions[0].id
+      );
+
+    } else {
+
+      await createSession();
+    }
+
+  } catch (err) {
+
+    console.error(err);
+
+    authStatus.textContent =
+      '⚠️ Login failed';
+  }
+});
 
 // ── Init ───────────────────────────────────────
 (async () => {
-  await loadSessions();
-  await refreshMemoryStats();
-  // Load most recent session or create new
-  const res = await fetch(`${API}/sessions`);
-  const { sessions } = await res.json();
-  if (sessions.length > 0) {
-    await loadSession(sessions[0].id);
-  } else {
-    await createSession();
+
+  // USER ALREADY LOGGED IN
+  if (authToken) {
+
+    authModal.style.display =
+      'none';
+
+    await loadSessions();
+
+    await refreshMemoryStats();
+
+    const res = await fetch(
+      `${API}/sessions`,
+      {
+        headers: {
+          'Authorization':
+            `Bearer ${authToken}`
+        }
+      }
+    );
+
+    const { sessions } =
+      await res.json();
+
+    if (sessions.length > 0) {
+
+      await loadSession(
+        sessions[0].id
+      );
+
+    } else {
+
+      await createSession();
+    }
+
   }
+
 })();

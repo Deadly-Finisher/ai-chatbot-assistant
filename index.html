@@ -12,6 +12,11 @@
   <!-- Sidebar -->
   <div id="sidebar">
     <button id="new-chat-btn">✚ NEW MISSION</button>
+    <input type="file" id="pdf-upload" accept=".pdf" style="display:none" />
+    
+    <button id="upload-pdf-btn">
+      📄 UPLOAD PDF
+    </button>
     <!-- Memory Badge -->
     <div id="memory-badge">
       <span id="mem-count">0</span> memories · <span id="session-count">0</span> sessions
@@ -65,13 +70,16 @@
       <span class="rag-tag" id="tag-memory" style="display:none">🧠 MEM</span>
       <span class="rag-tag" id="tag-knowledge" style="display:none">📚 RAG</span>
     </div>
+    <button id="logout-btn">
+      LOGOUT
+    </button>   
   </div>
 
   <!-- Chat Box -->
   <div id="chat-box"></div>
 
   <div class="transmit-area">
-    <input type="text" id="user-input" placeholder="Type your transmission..." autocomplete="off">
+    <textarea id="user-input" placeholder="Type your transmission..."></textarea>
     <button id="send-btn">TRANSMIT</button>
   </div>
 
@@ -82,7 +90,34 @@
   </div>
 
 </div>
+<!-- AUTH MODAL -->
+<div id="auth-modal">
 
+  <div class="auth-box">
+
+    <h2>🚀 SPACE LOGIN</h2>
+
+    <input type="text" id="auth-username" placeholder="Username">
+
+    <input type="password" id="auth-password" placeholder="Password">
+
+    <div class="auth-buttons">
+
+      <button id="login-btn">
+        LOGIN
+      </button>
+
+      <button id="register-btn">
+        REGISTER
+      </button>
+
+    </div>
+
+    <div id="auth-status"></div>
+
+  </div>
+
+</div>
 <script src="script.js"></script>
 </body>
 </html>

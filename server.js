@@ -10,11 +10,19 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
 const path = require('path');
-const fs = require('fs-extra');
 const Groq = require('groq-sdk');
 const { tavily } = require("@tavily/core");
+const fs = require('fs-extra');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
+const PDFRepository = require('./db/PDFRepository');
+
+
+
 
 const {
   MemoryRepository,
@@ -22,12 +30,45 @@ const {
   KnowledgeRepository,
   FeedbackRepository,
 } = require('./db/repositories');
+const UserRepository =
+  require('./db/UserRepository');
 
 
 const app = express();
+const userRepo = new UserRepository();
+const pdfRepo =
+  new PDFRepository();
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('.'));
+
+// ─────────────────────────────────────────────
+// FILE UPLOAD CONFIG
+// ─────────────────────────────────────────────
+
+const storage =
+  multer.diskStorage({
+
+    destination:
+      function (req, file, cb) {
+
+        cb(null, 'uploads/');
+      },
+
+    filename:
+      function (req, file, cb) {
+
+        cb(
+          null,
+          Date.now() +
+          '-' +
+          file.originalname
+        );
+      }
+  });
+
+const upload =
+  multer({ storage });
 
 // ─────────────────────────────────────────────
 // CONFIG
@@ -99,18 +140,30 @@ class MemoryStore {
   }
 
   add(entry) {
-    // Keep same shape used elsewhere
+
     return this.repo.add({
+
+      userId: entry.userId || 'guest',
+
       sessionId: entry.sessionId,
+
       role: entry.role,
+
       text: entry.text,
+
       metadata: entry.metadata || {},
     });
+  
   }
 
   // Retrieve top-k relevant memories using TF-IDF cosine sim (same behavior, but data comes from SQLite)
-  retrieve(query, topK = 8) {
-    const memories = this.repo.all();
+  retrieve(userId, query, topK = 8){
+    const memories =
+      this.repo
+        .all()
+        .filter(
+          m => m.userId === userId
+        );
     if (memories.length === 0) return [];
 
     const corpus = memories;
@@ -128,7 +181,7 @@ class MemoryStore {
   }
 
   // Extract and store facts from a message
-  extractFacts(text, sessionId) {
+  extractFacts(userId,text, sessionId) {
     const factPatterns = [
       /my name is (.+)/i,
       /i am (.+)/i,
@@ -147,6 +200,7 @@ class MemoryStore {
       const match = text.match(pattern);
       if (match) {
         this.add({
+          userId,
           sessionId,
           role: 'fact',
           text: text.trim(),
@@ -287,16 +341,95 @@ class RAGAgent {
     this.sessions = new SessionStore();
     this.model = groq;
   }
+  retrieveRelevantPDFChunks(
+    userId,
+    query,
+    topK = 5
+  ) {
 
-  buildSystemPrompt(query, sessionId) {
+    const documents =
+      pdfRepo.getUserDocuments(
+        userId
+      );
+
+    if (!documents.length)
+      return [];
+
+    const allChunks = [];
+
+    documents.forEach(doc => {
+
+      doc.chunks.forEach(chunk => {
+
+        allChunks.push({
+
+          filename:
+            doc.filename,
+
+          text:
+            chunk
+        });
+      });
+    });
+
+    const corpus =
+      allChunks.map(c => ({
+        text: c.text
+      }));
+
+    const qVec =
+      tfidf(query, corpus);
+
+    return allChunks
+      .map(chunk => ({
+
+        ...chunk,
+
+        score:
+          cosineSimilarity(
+            qVec,
+            tfidf(
+              chunk.text,
+              corpus
+            )
+          )
+      }))
+      .sort(
+        (a, b) =>
+          b.score - a.score
+      )
+      .slice(0, topK);
+  }
+
+  buildSystemPrompt(
+    userId,
+    query,
+    sessionId
+  ){
 
     // 1. Retrieve relevant long-term memories
-    const relevantMemories = this.memory.retrieve(query, 8);
+    const relevantMemories =
+      this.memory.retrieve(
+        userId,
+        query,
+        8
+      );
 
     // 2. Retrieve from knowledge base
     const knowledgeHits = this.knowledge.retrieve(query, 3);
 
     let contextBlock = '';
+
+    // ─────────────────────────────
+    // PDF RAG Retrieval
+    // ─────────────────────────────
+
+    const pdfChunks =
+      this.retrieveRelevantPDFChunks(
+        userId,
+        query,
+        5
+      );
 
     if (relevantMemories.length > 0) {
 
@@ -320,6 +453,22 @@ class RAGAgent {
         this.knowledge.incrementUsage(k.id);
 
       });
+    }
+    if (pdfChunks.length > 0) {
+
+      contextBlock +=
+        `\n### RELEVANT PDF CONTEXT:\n`;
+
+      pdfChunks.forEach(
+        (chunk, index) => {
+
+          contextBlock +=
+            `\n[PDF ${index + 1}] (${chunk.filename})\n`;
+
+          contextBlock +=
+            `${chunk.text}\n`;
+        }
+      );
     }
 
     return `You are an intelligent AI assistant with RAG (Retrieval-Augmented Generation) capabilities.
@@ -351,16 +500,17 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
   }
 
 
-  async chat(sessionId, userMessage) {
+  async chat(userId, sessionId, userMessage) {
 
     // Store user message in memory
     this.memory.add({
+      userId,
       sessionId,
       role: 'user',
       text: userMessage
     });
 
-    this.memory.extractFacts(userMessage, sessionId);
+    this.memory.extractFacts(userId,userMessage, sessionId);
 
     this.sessions.addMessage(
       sessionId,
@@ -373,7 +523,7 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
       this.sessions.getRecentMessages(sessionId, 12);
 
     const systemPrompt =
-      this.buildSystemPrompt(userMessage, sessionId);
+      this.buildSystemPrompt(userId,userMessage, sessionId);
 
     // ─────────────────────────────────────────────
     // REALTIME INTERNET SEARCH
@@ -383,39 +533,57 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
     if (needsWebSearch(userMessage)) {
 
-      try {
+        try {
 
-        console.log('🌐 Performing realtime web search...');
+          console.log(
+            '🌐 Performing realtime web search...'
+          );
 
+          let searchQuery = userMessage
+            .replace(/\n/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-        const searchResults = await tavilyClient.search(
-          userMessage,
-          {
-            maxResults: 5
+          if (searchQuery.length > 350) {
+
+            searchQuery =
+              searchQuery.substring(0, 350);
+
+            console.log(
+              '⚠️ Search query truncated for Tavily'
+            );
           }
-        );
 
-        webContext = `
-    
+          const searchResults =
+            await tavilyClient.search(
+              searchQuery,
+              {
+                maxResults: 5
+              }
+            );
 
-### REALTIME INTERNET SEARCH RESULTS:
+          webContext = `
+        
+        ### REALTIME INTERNET SEARCH RESULTS:
+        
+        ${JSON.stringify(searchResults)}
+        
+        Use these search results as factual grounding.
+        
+        Do not hallucinate beyond these results.
+        `;
 
-${JSON.stringify(searchResults)}
+        } catch (err) {
 
-Use these search results as factual grounding.
+          console.error(
+            'Web search failed:',
+            err
+          );
 
-Do not hallucinate beyond these results.
-`;
-
-      } catch (err) {
-
-        console.error('Web search failed:', err);
-
-        webContext = `
-Realtime web search currently unavailable.
-`;
-
-      }
+          webContext = `
+        Realtime web search currently unavailable.
+        `;
+        }
     }
 
     // Convert to Gemini format
@@ -498,6 +666,7 @@ Realtime web search currently unavailable.
 
     // Store assistant response
     this.memory.add({
+      userId,
       sessionId,
       role: 'assistant',
       text: responseText
@@ -528,7 +697,7 @@ Realtime web search currently unavailable.
       response: responseText,
 
       memoryUsed:
-        this.memory.retrieve(userMessage, 3).length > 0,
+        this.memory.retrieve(userId,userMessage, 3).length > 0,
 
       knowledgeUsed:
         this.knowledge.retrieve(userMessage, 1).length > 0,
@@ -586,34 +755,97 @@ Realtime web search currently unavailable.
 const agent = new RAGAgent();
 
 // ─────────────────────────────────────────────
+// AUTH MIDDLEWARE
+// ─────────────────────────────────────────────
+
+function authMiddleware(req, res, next) {
+
+  const authHeader =
+    req.headers.authorization;
+
+  if (!authHeader) {
+
+    return res.status(401).json({
+      error: 'No token provided'
+    });
+  }
+
+  const token =
+    authHeader.split(' ')[1];
+
+  try {
+
+    const decoded =
+      jwt.verify(
+        token,
+        process.env.JWT_SECRET
+      );
+
+    req.user = decoded;
+
+    next();
+
+  } catch (err) {
+
+    return res.status(401).json({
+      error: 'Invalid token'
+    });
+  }
+}
+
+// ─────────────────────────────────────────────
 // API ROUTES
 // ─────────────────────────────────────────────
 
 // Create new session
-app.post('/api/session', (req, res) => {
-  const session = agent.sessions.createSession(req.body.title);
-  res.json({ session });
-});
+app.post(
+  '/api/session',
+  authMiddleware,
+  (req, res) => {
+
+    const session =
+      agent.sessions.createSession(
+        req.user.userId,
+        req.body.title
+      );
+
+    res.json({ session });
+  }
+);
 
 // Get all sessions
-app.get('/api/sessions', (req, res) => {
-  res.json({ sessions: agent.sessions.getAllSessions() });
-});
+app.get(
+  '/api/sessions',
+  authMiddleware,
+  (req, res) => {
+
+    const sessions =
+      agent.sessions.getAllSessions(
+        req.user.userId
+      );
+
+    res.json({ sessions });
+  }
+);
 
 // Get session messages
-app.get('/api/session/:id', (req, res) => {
+app.get('/api/session/:id', authMiddleware, (req, res) => {
   const session = agent.sessions.getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   res.json({ session });
 });
 
 // Main chat endpoint
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', authMiddleware, async (req, res) => {
   const { sessionId, message } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: 'sessionId and message required' });
 
   try {
-    const result = await agent.chat(sessionId, message);
+    const result = await agent.chat(
+      req.user.userId,
+      sessionId,
+      message
+    );
     res.json(result);
   } catch (err) {
     console.error('Chat error:', err);
@@ -637,7 +869,7 @@ app.get('/api/memory/stats', (req, res) => {
 // Search memory
 app.post('/api/memory/search', (req, res) => {
   const { query, topK } = req.body;
-  const results = agent.memory.retrieve(query, topK || 5);
+  const results = agent.memory.retrieve(req.user.userId, query, topK || 5);
   res.json({ results });
 });
 
@@ -653,6 +885,220 @@ app.post('/api/knowledge/upload', (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', memoryStats: agent.memory.getStats() });
 });
+
+// ─────────────────────────────────────────────
+// AUTH ROUTES
+// ─────────────────────────────────────────────
+
+app.post('/api/auth/register', async (req, res) => {
+
+  try {
+
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+
+      return res.status(400).json({
+        error: 'Username and password required'
+      });
+    }
+
+    const existing =
+      userRepo.findByUsername(username);
+
+    if (existing) {
+
+      return res.status(400).json({
+        error: 'User already exists'
+      });
+    }
+
+    const hashedPassword =
+      await bcrypt.hash(password, 10);
+
+    const user =
+      userRepo.createUser(
+        username,
+        hashedPassword
+      );
+
+    res.json({
+      success: true,
+      user
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: 'Registration failed'
+    });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+
+  try {
+
+    const { username, password } = req.body;
+
+    const user =
+      userRepo.findByUsername(username);
+
+    if (!user) {
+
+      return res.status(401).json({
+        error: 'Invalid username or password'
+      });
+    }
+
+    const valid =
+      await bcrypt.compare(
+        password,
+        user.password
+      );
+
+    if (!valid) {
+
+      return res.status(401).json({
+        error: 'Invalid username or password'
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        username: user.username
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: '7d'
+      }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username
+      }
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: 'Login failed'
+    });
+  }
+});
+
+// ─────────────────────────────────────────────
+// PDF UPLOAD + RAG INGESTION
+// ─────────────────────────────────────────────
+
+app.post(
+  '/api/pdf/upload',
+
+  authMiddleware,
+
+  upload.single('pdf'),
+
+  async (req, res) => {
+
+    try {
+
+      if (!req.file) {
+
+        return res.status(400).json({
+          error: 'No PDF uploaded'
+        });
+      }
+
+      // Read uploaded PDF
+      const dataBuffer =
+        fs.readFileSync(req.file.path);
+
+      // Extract text
+      const pdfData =
+        await pdfParse(dataBuffer);
+
+      const fullText =
+        pdfData.text;
+
+      // ─────────────────────────────
+      // CHUNKING
+      // ─────────────────────────────
+
+      const chunkSize = 1200;
+
+      const chunks = [];
+
+      for (
+        let i = 0;
+        i < fullText.length;
+        i += chunkSize
+      ) {
+
+        chunks.push(
+          fullText.substring(
+            i,
+            i + chunkSize
+          )
+        );
+      }
+
+      // Save document
+      const document = {
+
+        id:
+          Date.now().toString(),
+
+        userId:
+          req.user.userId,
+
+        filename:
+          req.file.originalname,
+
+        path:
+          req.file.path,
+
+        uploadedAt:
+          new Date().toISOString(),
+
+        chunks
+      };
+
+      pdfRepo.addDocument(document);
+
+      res.json({
+
+        success: true,
+
+        filename:
+          req.file.originalname,
+
+        chunks:
+          chunks.length
+      });
+
+    } catch (err) {
+
+      console.error(
+        'PDF Upload Error:',
+        err
+      );
+
+      res.status(500).json({
+        error:
+          'PDF processing failed'
+      });
+    }
+  }
+);
 
 // ─────────────────────────────────────────────
 // START SERVER

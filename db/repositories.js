@@ -42,9 +42,16 @@ class MemoryRepository {
     saveStore(this._name, { memories: this._data, lastUpdated: new Date().toISOString() });
   }
 
-  add({ sessionId, role, text, metadata = {} }) {
+  add({
+    userId = 'guest',
+    sessionId,
+    role,
+    text,
+    metadata = {}
+  }) {
     const mem = {
       id: uuidv4(),
+      userId,
       sessionId,
       role,
       text,
@@ -81,18 +88,32 @@ class SessionRepository {
     saveStore(this._name, { sessions: this._data });
   }
 
-  createSession(title = 'New Mission') {
+  createSession(userId = 'guest', title = 'New Mission') {
+
     const id = uuidv4();
+
     this._data[id] = {
+
       id,
+
+      userId,
+
       title,
+
       messages: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+
+      createdAt:
+        new Date().toISOString(),
+
+      updatedAt:
+        new Date().toISOString(),
     };
+
     this._save();
+
     return this._data[id];
   }
+
 
   addMessage(sessionId, role, content) {
     if (!this._data[sessionId]) this.createSession();
@@ -114,9 +135,19 @@ class SessionRepository {
     return this._data[id] || null;
   }
 
-  getAllSessions() {
+  getAllSessions(userId = 'guest') {
+
     return Object.values(this._data)
-      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+      .filter(
+        s => s.userId === userId
+      )
+
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt) -
+          new Date(a.updatedAt)
+      );
   }
 
   getRecentMessages(sessionId, limit = 10) {

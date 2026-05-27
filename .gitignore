@@ -1,4 +1,30 @@
-node_modules
+# ENV
+
 .env
-database.sqlite
+
+# Node modules
+
+node_modules/
+
+# Uploaded PDFs
+
+uploads/
+
+# Runtime memory/data
+
+data/*.json
+
+# SQLite DB
+
 *.db
+*.sqlite
+database.sqlite
+
+# Logs
+
+npm-debug.log*
+
+# OS files
+
+.DS_Store
+Thumbs.db
