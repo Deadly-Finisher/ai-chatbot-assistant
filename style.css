@@ -136,21 +136,25 @@ html, body {
 
 #task-panel {
 
-  margin-top: 15px;
+  margin-top: 20px;
 
-  padding: 10px;
+  padding: 12px;
 
   border:
     1px solid rgba(255, 255, 255, 0.08);
 
-  border-radius: 10px;
+  border-radius: 14px;
 
   background:
     rgba(255, 255, 255, 0.03);
 
-  max-height: 260px;
+  flex-shrink: 0;
+
+  max-height: 280px;
 
   overflow-y: auto;
+
+  scrollbar-width: thin;
 }
 
 .task-title {
@@ -365,7 +369,12 @@ html, body {
 }
 
 #session-list {
-  flex: 1; overflow-y: auto; overflow-x: hidden;
+
+  flex: 1;
+
+  overflow-y: auto;
+
+  min-height: 180px;
 }
 #session-list::-webkit-scrollbar { width: 3px; }
 #session-list::-webkit-scrollbar-thumb { background: var(--border-glow); border-radius: 2px; }

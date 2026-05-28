@@ -251,6 +251,7 @@ generatePlanBtn.addEventListener(
           'assistant',
           data.plan
         );
+        await loadTasks();
 
       } else {
 

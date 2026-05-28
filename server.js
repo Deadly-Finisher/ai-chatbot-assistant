@@ -640,6 +640,67 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
     const recentMsgs =
       this.sessions.getRecentMessages(sessionId, 12);
 
+
+    // ─────────────────────────────
+    // FAST PDF METADATA QUERIES
+    // ─────────────────────────────
+
+    const normalizedQuery =
+      userMessage
+        .trim()
+        .toLowerCase();
+
+    if (
+
+      normalizedQuery.includes(
+        'how many pdf'
+      ) ||
+
+      normalizedQuery.includes(
+        'how many documents'
+      ) ||
+
+      normalizedQuery.includes(
+        'uploaded pdf'
+      )
+
+    ) {
+
+      const documents =
+        pdfRepo.getUserDocuments(
+          userId
+        );
+
+      const response =
+        `📚 You have uploaded ${documents.length} PDF documents.`;
+
+      this.sessions.addMessage(
+        sessionId,
+        'user',
+        userMessage
+      );
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
+
+      return {
+
+        response,
+
+        memoryUsed: false,
+
+        knowledgeUsed: false,
+
+        sources: [],
+
+        memoryStats:
+          this.memory.getStats()
+      };
+      }
+
     // ─────────────────────────────
     // TRACK PDF SOURCES
     // ─────────────────────────────
@@ -1463,13 +1524,69 @@ ${combinedText}
       const plan =
         result.choices[0]
           .message.content;
+      
+      // ─────────────────────────────
+      // AUTO CREATE TASKS FROM PLAN
+      // ─────────────────────────────
+
+      const lines =
+        plan.split('\n');
+
+      const createdTasks = [];
+
+      for (const line of lines) {
+
+        const clean =
+          line.trim();
+
+        if (
+
+          clean.startsWith('-') ||
+
+          clean.match(/^day\s+\d+/i)
+
+        ) {
+
+          const task = {
+
+            id:
+              Date.now().toString() +
+              Math.random(),
+
+            userId:
+              req.user.userId,
+
+            title:
+              clean.replace(/^-\s*/, ''),
+
+            deadline:
+              null,
+
+            priority:
+              'medium',
+
+            completed:
+              false,
+
+            createdAt:
+              new Date().toISOString()
+          };
+
+          taskRepo.addTask(task);
+
+          createdTasks.push(task);
+        }
+          }
 
       res.json({
 
         success: true,
 
-        plan
-      });
+        plan,
+
+        tasks:
+          createdTasks
+          });
 
     } catch (err) {
 
