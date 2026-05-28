@@ -124,6 +124,29 @@ async function loadEmbeddingModel() {
   return embedder;
 }
 
+// ─────────────────────────────
+// CREATE EMBEDDING
+// ─────────────────────────────
+
+async function createEmbedding(text) {
+
+  const model =
+    await loadEmbeddingModel();
+
+  const output =
+    await model(
+      text,
+      {
+        pooling: 'mean',
+        normalize: true
+      }
+    );
+
+  return Array.from(
+    output.data
+  );
+}
+
 const tavilyClient = tavily({
   apiKey: process.env.TAVILY_API_KEY,
 });
@@ -172,6 +195,44 @@ function cosineSimilarity(vecA, vecB) {
   });
   if (!normA || !normB) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// ─────────────────────────────
+// EMBEDDING COSINE SIMILARITY
+// ─────────────────────────────
+
+function embeddingSimilarity(
+  vecA,
+  vecB
+) {
+
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (
+    let i = 0;
+    i < vecA.length;
+    i++
+  ) {
+
+    dot +=
+      vecA[i] * vecB[i];
+
+    normA +=
+      vecA[i] * vecA[i];
+
+    normB +=
+      vecB[i] * vecB[i];
+  }
+
+  return (
+    dot /
+    (
+      Math.sqrt(normA) *
+      Math.sqrt(normB)
+    )
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -419,7 +480,10 @@ function needsWebSearch(query) {
 // QUERY INTENT CLASSIFIER
 // ─────────────────────────────
 
-function classifyQuery(query) {
+function classifyQuery(
+  userId,
+  query
+) {
 
   const q =
     query
@@ -444,6 +508,27 @@ function classifyQuery(query) {
   ) {
 
     return 'rag';
+  }
+
+  // Detect uploaded document names
+  const documents =
+    pdfRepo.getUserDocuments(
+      userId
+    );
+
+  for (const doc of documents) {
+
+    const filename =
+      doc.filename
+        .toLowerCase()
+        .replace('.pdf', '');
+
+    if (
+      q.includes(filename)
+    ) {
+
+      return 'rag';
+    }
   }
   if (
 
@@ -564,7 +649,7 @@ class RAGAgent {
 
     return null;
   }
-  retrieveRelevantPDFChunks(
+  async retrieveRelevantPDFChunks(
     userId,
     query,
     topK = 5
@@ -622,28 +707,42 @@ class RAGAgent {
 
     // Otherwise use TF-IDF retrieval
 
-    const corpus =
-      allChunks.map(c => ({
-        text: c.text
-      }));
+    // ─────────────────────────────
+    // EMBEDDING-BASED RETRIEVAL
+    // ─────────────────────────────
 
-    const qVec =
-      tfidf(query, corpus);
+    const queryEmbedding =
+      await createEmbedding(
+        query
+      );
 
-    return allChunks
-      .map(chunk => ({
+    const scoredChunks = [];
+
+    for (const chunk of allChunks) {
+
+      const chunkEmbedding =
+        await createEmbedding(
+          chunk.text.substring(
+            0,
+            1000
+          )
+        );
+
+      const score =
+        embeddingSimilarity(
+          queryEmbedding,
+          chunkEmbedding
+        );
+
+      scoredChunks.push({
 
         ...chunk,
 
-        score:
-          cosineSimilarity(
-            qVec,
-            tfidf(
-              chunk.text,
-              corpus
-            )
-          )
-      }))
+        score
+      });
+    }
+
+    return scoredChunks
       .sort(
         (a, b) =>
           b.score - a.score
@@ -651,7 +750,7 @@ class RAGAgent {
       .slice(0, topK);
   }
 
-  buildSystemPrompt(
+  async buildSystemPrompt(
     userId,
     query,
     sessionId
@@ -682,7 +781,7 @@ class RAGAgent {
     // ─────────────────────────────
 
     const pdfChunks =
-      this.retrieveRelevantPDFChunks(
+      await this.retrieveRelevantPDFChunks(
         userId,
         query,
         2
@@ -773,6 +872,7 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
     const intent =
       classifyQuery(
+        userId,
         userMessage
       );
 
@@ -970,7 +1070,7 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
     if (intent === 'rag') {
 
       const pdfChunks =
-        this.retrieveRelevantPDFChunks(
+        await this.retrieveRelevantPDFChunks(
           userId,
           userMessage,
           5
@@ -987,7 +1087,7 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
     }
 
     const systemPrompt =
-      this.buildSystemPrompt(userId,userMessage, sessionId);
+      await this.buildSystemPrompt(userId,userMessage, sessionId);
 
     // ─────────────────────────────────────────────
     // REALTIME INTERNET SEARCH
