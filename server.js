@@ -522,6 +522,26 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
     const recentMsgs =
       this.sessions.getRecentMessages(sessionId, 12);
 
+    // ─────────────────────────────
+    // TRACK PDF SOURCES
+    // ─────────────────────────────
+
+    const pdfChunks =
+      this.retrieveRelevantPDFChunks(
+        userId,
+        userMessage,
+        5
+      );
+
+    const pdfSources =
+      [
+        ...new Set(
+          pdfChunks.map(
+            c => c.filename
+          )
+        )
+        ];
+
     const systemPrompt =
       this.buildSystemPrompt(userId,userMessage, sessionId);
 
@@ -701,6 +721,9 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
       knowledgeUsed:
         this.knowledge.retrieve(userMessage, 1).length > 0,
+
+      sources:
+        pdfSources,
 
       memoryStats:
         this.memory.getStats()

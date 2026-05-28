@@ -247,10 +247,42 @@ async function sendMessage() {
       appendMessage('assistant', `⚠️ Error: ${data.error}`);
       setStatus('ERROR', false);
     } else {
-      appendMessage('assistant', data.response, true, {
-        memoryUsed: data.memoryUsed,
-        knowledgeUsed: data.knowledgeUsed
-      });
+      let finalResponse =
+        data.response;
+
+      // ─────────────────────────────
+      // ADD CITATIONS
+      // ─────────────────────────────
+
+      if (
+        data.sources &&
+        data.sources.length > 0
+      ) {
+
+        finalResponse +=
+          `\n\n📚 Sources Used:\n`;
+
+        data.sources.forEach(
+          source => {
+
+            finalResponse +=
+              `• ${source}\n`;
+          }
+        );
+      }
+
+      appendMessage(
+        'assistant',
+        finalResponse,
+        true,
+        {
+          memoryUsed:
+            data.memoryUsed,
+
+          knowledgeUsed:
+            data.knowledgeUsed
+        }
+      );
       if (data.memoryUsed) tagMemory.style.display = 'inline-block';
       if (data.knowledgeUsed) tagKnowledge.style.display = 'inline-block';
       setStatus('SYSTEM READY', false);
