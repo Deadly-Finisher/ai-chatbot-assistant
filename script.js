@@ -541,6 +541,7 @@ async function sendMessage() {
 
   userInput.value = '';
   appendMessage('user', text);
+  await loadSessions();
   setStatus('TRANSMITTING...', true);
 
   // Hide rag tags
@@ -563,6 +564,7 @@ async function sendMessage() {
 
     if (data.error) {
       appendMessage('assistant', `⚠️ Error: ${data.error}`);
+      await loadSessions();
       setStatus('ERROR', false);
     } else {
       let finalResponse =
@@ -736,11 +738,6 @@ newChatBtn.addEventListener(
     try {
 
       await createSession();
-
-      appendMessage(
-        'assistant',
-        '🚀 New mission initialized'
-      );
 
     } catch (err) {
 

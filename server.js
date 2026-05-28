@@ -273,6 +273,18 @@ class KnowledgeBase {
 // SESSION STORE
 // ─────────────────────────────────────────────
 class SessionStore {
+
+  updateTitle(
+    sessionId,
+    title
+  ) {
+
+    return this.repo.updateTitle(
+      sessionId,
+      title
+    );
+  }
+
   constructor() {
     this.repo = new SessionRepository();
   }
@@ -607,6 +619,7 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
       };
     }
 
+    
     // Store user message in memory
     this.memory.add({
       userId,

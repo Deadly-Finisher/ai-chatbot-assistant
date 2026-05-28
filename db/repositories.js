@@ -78,6 +78,29 @@ class MemoryRepository {
 
 // ── SessionRepository ───────────────────────────────────────────────────────
 class SessionRepository {
+
+  updateTitle(
+    sessionId,
+    title
+  ) {
+
+    if (!this._data[sessionId]) {
+      return null;
+    }
+
+    this._data[sessionId].title =
+      title;
+
+    this._data[sessionId].updatedAt =
+      new Date().toISOString();
+
+    this._save();
+
+    return this._data[sessionId];
+  }
+
+  
+
   constructor() {
     this._name = 'sessions';
     const d = loadStore(this._name, { sessions: {} });
@@ -122,9 +145,20 @@ class SessionRepository {
     this._data[sessionId].updatedAt = new Date().toISOString();
 
     // Auto-title from first user message
-    const userMsgs = this._data[sessionId].messages.filter(m => m.role === 'user');
-    if (role === 'user' && userMsgs.length === 1) {
-      this._data[sessionId].title = content.substring(0, 40) + (content.length > 40 ? '...' : '');
+    // Auto-title while still default
+    if (
+      role === 'user' &&
+      this._data[sessionId].title ===
+      'New Mission'
+    ) {
+
+      this._data[sessionId].title =
+        content.substring(0, 40) +
+        (
+          content.length > 40
+            ? '...'
+            : ''
+        );
     }
 
     this._save();
