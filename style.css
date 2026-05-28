@@ -678,3 +678,84 @@ code {
   background:
     rgba(255, 80, 80, 0.2);
 }
+
+/* ─────────────────────────────
+   RECENT SESSIONS
+───────────────────────────── */
+
+.sidebar-section-title {
+
+  margin-top: 20px;
+
+  margin-bottom: 10px;
+
+  padding-left: 6px;
+
+  color: white;
+
+  font-size: 12px;
+
+  letter-spacing: 1px;
+
+  opacity: 0.8;
+}
+
+#session-list {
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 8px;
+
+  margin-bottom: 20px;
+
+  max-height: 250px;
+
+  overflow-y: auto;
+}
+
+.session-item {
+
+  padding: 10px;
+
+  border-radius: 12px;
+
+  background:
+    rgba(255, 255, 255, 0.05);
+
+  border:
+    1px solid rgba(255, 255, 255, 0.08);
+
+  cursor: pointer;
+
+  transition: 0.2s;
+}
+
+.session-item:hover {
+
+  background:
+    rgba(255, 255, 255, 0.10);
+}
+
+.session-item.active {
+
+  background:
+    rgba(255, 255, 255, 0.15);
+}
+
+.session-title {
+
+  color: white;
+
+  font-size: 13px;
+
+  margin-bottom: 4px;
+}
+
+.session-meta {
+
+  font-size: 10px;
+
+  opacity: 0.6;
+}

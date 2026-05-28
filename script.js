@@ -449,7 +449,12 @@ async function loadSessions() {
         }
       }
     );
-    const { sessions } = await res.json();
+    const data = await res.json();
+
+    console.log('SESSIONS API:', data);
+
+    const sessions =
+      data.sessions || [];
     sessionList.innerHTML = '';
     sessions.forEach(s => {
       const el = document.createElement('div');

@@ -277,8 +277,15 @@ class SessionStore {
     this.repo = new SessionRepository();
   }
 
-  createSession(title = 'New Mission') {
-    return this.repo.createSession(title);
+  createSession(
+    userId,
+    title = 'New Mission'
+  ) {
+
+    return this.repo.createSession(
+      userId,
+      title
+    );
   }
 
   addMessage(sessionId, role, content) {
@@ -289,8 +296,11 @@ class SessionStore {
     return this.repo.getSession(id);
   }
 
-  getAllSessions() {
-    return this.repo.getAllSessions();
+  getAllSessions(userId) {
+
+    return this.repo.getAllSessions(
+      userId
+    );
   }
 
   getRecentMessages(sessionId, limit = 10) {
