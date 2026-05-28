@@ -3,8 +3,7 @@
  * // AI Productivity & Research Assistant Frontend
  */
 
-const API = 'http://localhost:5000/api';
-
+const API = `${window.location.origin}/api`;
 // ── State ──────────────────────────────────────
 let currentSessionId = null;
 

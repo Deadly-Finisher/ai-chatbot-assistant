@@ -19,6 +19,8 @@ const { tavily } = require("@tavily/core");
 const fs = require('fs-extra');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
+// Suppress noisy pdf.js font warnings
+process.env.PDFJS_DISABLE_WARNINGS = 'true';
 const PDFRepository = require('./db/PDFRepository');
 const TaskRepository = require('./db/TaskRepository');
 
@@ -374,6 +376,73 @@ function needsWebSearch(query) {
       pattern.test(query)
   );
 }
+
+// ─────────────────────────────
+// QUERY INTENT CLASSIFIER
+// ─────────────────────────────
+
+function classifyQuery(query) {
+
+  const q =
+    query
+      .trim()
+      .toLowerCase();
+
+  // Small talk
+  if (isSmallTalk(q)) {
+
+    return 'smalltalk';
+  }
+
+  // Realtime web info
+  
+
+  // PDF / study / document questions
+  if (
+
+    /\b(pdf|document|paper|summary|notes|study|chapter)\b/i
+      .test(q)
+
+  ) {
+
+    return 'rag';
+  }
+  if (
+
+    /\b(today|latest|current|news|weather|price|stock|bitcoin|gold)\b/i
+      .test(q)
+
+  ) {
+
+    return 'web';
+  }
+
+  // Task related
+  if (
+
+    /\b(task|deadline|plan|schedule|remind)\b/i
+      .test(q)
+
+  ) {
+
+    return 'task';
+  }
+
+  // Memory related
+  if (
+
+    /\b(remember|memory|about me)\b/i
+      .test(q)
+
+  ) {
+
+    return 'memory';
+  }
+
+  return 'general';
+}
+
+
 // ─────────────────────────────────────────────
 // RAG AGENT
 // ─────────────────────────────────────────────
@@ -386,6 +455,77 @@ class RAGAgent {
     this.sessions = new SessionStore();
     this.model = groq;
   }
+
+  // ─────────────────────────────
+  // DETECT TARGET PDF
+  // ─────────────────────────────
+
+  detectTargetDocument(
+    userId,
+    query
+  ) {
+
+    const documents =
+      pdfRepo.getUserDocuments(
+        userId
+      );
+
+    const normalizedQuery =
+      query.toLowerCase();
+
+    // Handle "last uploaded pdf"
+    if (
+
+      normalizedQuery.includes(
+        'last uploaded pdf'
+      ) ||
+
+      normalizedQuery.includes(
+        'latest pdf'
+      ) ||
+
+      normalizedQuery.includes(
+        'recent pdf'
+      )
+
+    ) {
+
+      const sortedDocs =
+        [...documents].sort(
+
+          (a, b) =>
+
+            new Date(
+              b.uploadedAt
+            ) -
+
+            new Date(
+              a.uploadedAt
+            )
+        );
+
+      return sortedDocs[0];
+      }
+
+    for (const doc of documents) {
+
+      const filename =
+        doc.filename
+          .toLowerCase()
+          .replace('.pdf', '');
+
+      if (
+        normalizedQuery.includes(
+          filename
+        )
+      ) {
+
+        return doc;
+      }
+    }
+
+    return null;
+  }
   retrieveRelevantPDFChunks(
     userId,
     query,
@@ -396,13 +536,25 @@ class RAGAgent {
       pdfRepo.getUserDocuments(
         userId
       );
+    // Detect target document
+    const targetDocument =
+      this.detectTargetDocument(
+        userId,
+        query
+      );
 
     if (!documents.length)
       return [];
 
     const allChunks = [];
 
-    documents.forEach(doc => {
+    const docsToSearch =
+
+      targetDocument
+        ? [targetDocument]
+        : documents;
+
+    docsToSearch.forEach(doc => {
 
       doc.chunks.forEach(chunk => {
 
@@ -416,6 +568,21 @@ class RAGAgent {
         });
       });
     });
+
+    // If a specific document is detected,
+    // directly use its first chunks
+
+    if (targetDocument) {
+
+      return allChunks
+        .slice(0, topK)
+        .map(chunk => ({
+          ...chunk,
+          score: 1
+        }));
+    }
+
+    // Otherwise use TF-IDF retrieval
 
     const corpus =
       allChunks.map(c => ({
@@ -452,6 +619,13 @@ class RAGAgent {
     sessionId
   ){
 
+    // Detect target PDF
+    const targetDocument =
+      this.detectTargetDocument(
+        userId,
+        query
+      );
+
     // 1. Retrieve relevant long-term memories
     const relevantMemories =
       this.memory.retrieve(
@@ -473,10 +647,16 @@ class RAGAgent {
       this.retrieveRelevantPDFChunks(
         userId,
         query,
-        5
+        2
       );
 
-    if (relevantMemories.length > 0) {
+    if (
+
+      !targetDocument &&
+
+      relevantMemories.length > 0
+
+      ) {
 
       contextBlock += `\n### LONG-TERM MEMORY (from previous conversations):\n`;
 
@@ -487,7 +667,13 @@ class RAGAgent {
       });
     }
 
-    if (knowledgeHits.length > 0) {
+    if (
+
+      !targetDocument &&
+
+      knowledgeHits.length > 0
+
+    ) {
 
       contextBlock += `\n### LEARNED KNOWLEDGE BASE:\n`;
 
@@ -546,6 +732,16 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
 
   async chat(userId, sessionId, userMessage) {
+
+    const intent =
+      classifyQuery(
+        userMessage
+      );
+
+    console.log(
+      '🧠 Intent:',
+      intent
+    );
 
     // ─────────────────────────────
     // FAST SMALL-TALK RESPONSES
@@ -636,9 +832,35 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
       userMessage
     );
 
-    // Build full chat history for Gemini
-    const recentMsgs =
-      this.sessions.getRecentMessages(sessionId, 12);
+
+
+    // ─────────────────────────────
+    // FAST MODE
+    // ─────────────────────────────
+
+    const fastMode =
+      intent === 'web' ||
+      intent === 'smalltalk';
+
+    let recentMsgs = [];
+
+    if (!fastMode) {
+
+      recentMsgs =
+        this.sessions.getRecentMessages(
+          sessionId,
+          12
+        );
+
+    } else {
+
+      recentMsgs = [
+        {
+          role: 'user',
+          content: userMessage
+        }
+      ];
+      }
 
 
     // ─────────────────────────────
@@ -652,19 +874,19 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
     if (
 
-      normalizedQuery.includes(
-        'how many pdf'
-      ) ||
+      normalizedQuery ===
+      'how many pdfs' ||
 
-      normalizedQuery.includes(
-        'how many documents'
-      ) ||
+      normalizedQuery ===
+      'how many pdf' ||
 
-      normalizedQuery.includes(
-        'uploaded pdf'
-      )
+      normalizedQuery ===
+      'how many documents' ||
 
-    ) {
+      normalizedQuery ===
+      'uploaded pdf'
+
+        ){
 
       const documents =
         pdfRepo.getUserDocuments(
@@ -705,21 +927,26 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
     // TRACK PDF SOURCES
     // ─────────────────────────────
 
-    const pdfChunks =
-      this.retrieveRelevantPDFChunks(
-        userId,
-        userMessage,
-        5
-      );
+    let pdfSources = [];
 
-    const pdfSources =
-      [
-        ...new Set(
-          pdfChunks.map(
-            c => c.filename
+    if (intent === 'rag') {
+
+      const pdfChunks =
+        this.retrieveRelevantPDFChunks(
+          userId,
+          userMessage,
+          5
+        );
+
+      pdfSources =
+        [
+          ...new Set(
+            pdfChunks.map(
+              c => c.filename
+            )
           )
-        )
         ];
+    }
 
     const systemPrompt =
       this.buildSystemPrompt(userId,userMessage, sessionId);
@@ -753,24 +980,42 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
             );
           }
 
-          const searchResults =
-            await tavilyClient.search(
-              searchQuery,
-              {
-                maxResults: 5
-              }
-            );
+          // ─────────────────────────────
+          // SMART WEB SEARCH
+          // ─────────────────────────────
 
-          webContext = `
-        
-        ### REALTIME INTERNET SEARCH RESULTS:
-        
-        ${JSON.stringify(searchResults)}
-        
-        Use these search results as factual grounding.
-        
-        Do not hallucinate beyond these results.
-        `;
+          const needsRealtimeSearch =
+
+            /\b(today|latest|current|now|live)\b/i
+              .test(userMessage);
+
+          if (needsRealtimeSearch) {
+
+            const searchResults =
+              await tavilyClient.search(
+                searchQuery,
+                {
+                  maxResults: 5
+                }
+              );
+
+            webContext = `
+
+### REALTIME INTERNET SEARCH RESULTS:
+
+${JSON.stringify(searchResults)}
+
+Use these search results as factual grounding.
+
+Do not hallucinate beyond these results.
+`;
+
+          } else {
+
+            webContext = `
+Use your own built-in knowledge.
+`;
+          }
 
         } catch (err) {
 
@@ -826,7 +1071,7 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
           model: MODEL,
           messages,
           temperature: 0.7,
-          max_tokens: 1500,
+          max_tokens: 700,
           top_p: 0.9,
         });
 
@@ -1226,7 +1471,12 @@ app.post(
 
       // Extract text
       const pdfData =
-        await pdfParse(dataBuffer);
+        await pdfParse(
+          dataBuffer,
+          {
+            max: 0
+          }
+        );
 
       const fullText =
         pdfData.text;
