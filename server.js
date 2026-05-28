@@ -1124,6 +1124,126 @@ app.post(
 );
 
 // ─────────────────────────────────────────────
+// SMART NOTES GENERATION
+// ─────────────────────────────────────────────
+
+app.post(
+  '/api/notes/generate',
+
+  authMiddleware,
+
+  async (req, res) => {
+
+    try {
+
+      const userId =
+        req.user.userId;
+
+      // Get all user PDFs
+      const documents =
+        pdfRepo.getUserDocuments(
+          userId
+        );
+
+      if (!documents.length) {
+
+        return res.status(400).json({
+          error:
+            'No PDFs uploaded'
+        });
+      }
+
+      // Merge chunks
+      let combinedText = '';
+
+      documents.forEach(doc => {
+
+        combinedText +=
+          `\n\nDOCUMENT: ${doc.filename}\n`;
+
+        combinedText +=
+          doc.chunks
+            .slice(0, 8)
+            .join('\n');
+      });
+
+      // Limit size
+      combinedText =
+        combinedText.substring(
+          0,
+          12000
+        );
+
+      // AI Prompt
+      const prompt = `
+Generate high-quality structured study notes from the following academic content.
+
+FORMAT:
+
+# Title
+
+## Key Concepts
+- bullet points
+
+## Important Explanations
+
+## Key Takeaways
+
+## Possible Exam Questions
+
+CONTENT:
+${combinedText}
+`;
+
+      const result =
+        await groq.chat.completions.create({
+
+          model: MODEL,
+
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an expert study notes generator.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+
+          temperature: 0.4,
+
+          max_tokens: 1800
+        });
+
+      const notes =
+        result.choices[0]
+          .message.content;
+
+      res.json({
+
+        success: true,
+
+        notes
+      });
+
+    } catch (err) {
+
+      console.error(
+        'Notes generation error:',
+        err
+      );
+
+      res.status(500).json({
+        error:
+          'Notes generation failed'
+      });
+    }
+  }
+);
+
+// ─────────────────────────────────────────────
 // START SERVER
 // ─────────────────────────────────────────────
 const PORT = 5000;

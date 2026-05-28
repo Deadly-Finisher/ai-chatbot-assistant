@@ -56,6 +56,11 @@ const authStatus =
 const logoutBtn =
   document.getElementById('logout-btn');
 
+const generateNotesBtn =
+  document.getElementById(
+    'generate-notes-btn'
+  );
+
 // ─────────────────────────────────────────────
 // PDF Upload
 // ─────────────────────────────────────────────
@@ -132,6 +137,67 @@ pdfUploadInput.addEventListener(
       appendMessage(
         'assistant',
         '❌ PDF upload failed'
+      );
+    }
+  }
+);
+
+// ─────────────────────────────────────────────
+// SMART NOTES GENERATION
+// ─────────────────────────────────────────────
+
+generateNotesBtn.addEventListener(
+  'click',
+
+  async () => {
+
+    try {
+
+      appendMessage(
+        'assistant',
+        '📝 Generating smart study notes from uploaded PDFs...'
+      );
+
+      const res =
+        await fetch(
+          `${API}/notes/generate`,
+          {
+            method: 'POST',
+
+            headers: {
+              'Authorization':
+                `Bearer ${authToken}`,
+              'Content-Type':
+                'application/json'
+            }
+          }
+        );
+
+      const data =
+        await res.json();
+
+      if (data.success) {
+
+        appendMessage(
+          'assistant',
+          data.notes
+        );
+
+      } else {
+
+        appendMessage(
+          'assistant',
+          `❌ ${data.error}`
+        );
+      }
+
+    } catch (err) {
+
+      console.error(err);
+
+      appendMessage(
+        'assistant',
+        '❌ Failed to generate notes'
       );
     }
   }
