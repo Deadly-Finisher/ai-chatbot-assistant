@@ -1,6 +1,6 @@
 /**
  * RAG AI Chatbot — Frontend Script
- * Infinite memory, self-learning, anti-hallucination
+ * // AI Productivity & Research Assistant Frontend
  */
 
 const API = 'http://localhost:5000/api';
@@ -22,9 +22,7 @@ const memCount = document.getElementById('mem-count');
 const sessionCount = document.getElementById('session-count');
 const tagMemory = document.getElementById('tag-memory');
 const tagKnowledge = document.getElementById('tag-knowledge');
-const feedbackBtn = document.getElementById('feedback-btn');
-const feedbackQ = document.getElementById('feedback-q');
-const feedbackA = document.getElementById('feedback-a');
+
 const uploadPdfBtn =
   document.getElementById(
     'upload-pdf-btn'
@@ -64,6 +62,11 @@ const generateNotesBtn =
 const generatePlanBtn =
   document.getElementById(
     'generate-plan-btn'
+  );
+
+const taskList =
+  document.getElementById(
+    'task-list'
   );
 
 // ─────────────────────────────────────────────
@@ -269,16 +272,170 @@ generatePlanBtn.addEventListener(
   }
 );
 
-// ── Clock ──────────────────────────────────────
-function updateClock() {
-  const now = new Date();
-  document.getElementById('clock-time').textContent = now.toLocaleTimeString();
-  document.getElementById('clock-date').textContent = now.toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'short', day: 'numeric'
-  }).toUpperCase();
+// ─────────────────────────────────────────────
+// LOAD USER TASKS
+// ─────────────────────────────────────────────
+
+async function loadTasks() {
+
+  try {
+
+    const res =
+      await fetch(
+        `${API}/tasks`,
+        {
+          headers: {
+            'Authorization':
+              `Bearer ${authToken}`
+          }
+        }
+      );
+
+    const data =
+      await res.json();
+
+    if (!data.success)
+      return;
+
+    renderTasks(
+      data.tasks
+    );
+
+  } catch (err) {
+
+    console.error(
+      'Failed to load tasks',
+      err
+    );
+  }
 }
-setInterval(updateClock, 1000);
-updateClock();
+
+// ─────────────────────────────────────────────
+// RENDER TASKS
+// ─────────────────────────────────────────────
+
+function renderTasks(tasks) {
+
+  taskList.innerHTML = '';
+
+  if (!tasks.length) {
+
+    taskList.innerHTML =
+      `<div style="opacity:0.6;font-size:11px;">
+        No tasks yet
+      </div>`;
+
+    return;
+  }
+
+  tasks.forEach(task => {
+
+    const div =
+      document.createElement('div');
+
+    div.className =
+      `task-item ${task.completed
+        ? 'completed'
+        : ''
+      }`;
+
+    div.innerHTML = `
+      <div>
+        ${task.title}
+      </div>
+
+      <div class="task-deadline">
+        Deadline:
+        ${task.deadline || 'N/A'}
+      </div>
+
+      <div class="task-deadline">
+        Priority:
+        ${task.priority}
+      </div>
+
+      ${!task.completed
+        ? `
+          <button
+            class="complete-task-btn"
+            onclick="completeTask('${task.id}')"
+          >
+            ✅ Mark Complete
+          </button>
+        `
+        : `
+          <div class="task-deadline">
+            ✔ Completed
+          </div>
+        `
+      }
+    `;
+
+    taskList.appendChild(div);
+  });
+}
+
+// ─────────────────────────────────────────────
+// COMPLETE TASK
+// ─────────────────────────────────────────────
+
+async function completeTask(
+  taskId
+) {
+
+  try {
+
+    const res =
+      await fetch(
+        `${API}/tasks/${taskId}`,
+        {
+          method: 'PUT',
+
+          headers: {
+            'Authorization':
+              `Bearer ${authToken}`,
+
+            'Content-Type':
+              'application/json'
+          },
+
+          body: JSON.stringify({
+            completed: true
+          })
+        }
+      );
+
+    const data =
+      await res.json();
+
+    if (data.success) {
+
+      loadTasks();
+
+      appendMessage(
+        'assistant',
+        '✅ Task marked complete'
+      );
+
+    } else {
+
+      appendMessage(
+        'assistant',
+        `❌ ${data.error}`
+      );
+    }
+
+  } catch (err) {
+
+    console.error(err);
+
+    appendMessage(
+      'assistant',
+      '❌ Failed to update task'
+    );
+  }
+}
+
 
 // ── Session Management ─────────────────────────
 async function loadSessions() {
@@ -339,13 +496,37 @@ async function loadSession(sessionId) {
 }
 
 // ── Memory Stats ───────────────────────────────
+
 async function refreshMemoryStats() {
+
   try {
-    const res = await fetch(`${API}/memory/stats`);
-    const stats = await res.json();
-    memCount.textContent = stats.total;
-    sessionCount.textContent = stats.sessions;
-  } catch {}
+
+    const res = await fetch(
+      `${API}/memory/stats`,
+      {
+        headers: {
+          'Authorization':
+            `Bearer ${authToken}`
+        }
+      }
+    );
+
+    const stats =
+      await res.json();
+
+    memCount.textContent =
+      stats.total;
+
+    sessionCount.textContent =
+      stats.sessions;
+
+  } catch (err) {
+
+    console.error(
+      'Memory stats error',
+      err
+    );
+  }
 }
 
 // ── Chat ───────────────────────────────────────
@@ -476,25 +657,6 @@ function setStatus(msg, busy) {
   document.querySelector('.pulse-container').style.opacity = busy ? '1' : '0.5';
 }
 
-// ── Feedback / Self-Learning ───────────────────
-feedbackBtn.addEventListener('click', async () => {
-  const q = feedbackQ.value.trim();
-  const a = feedbackA.value.trim();
-  if (!q || !a) { alert('Fill both fields'); return; }
-
-  feedbackBtn.textContent = 'LEARNING...';
-  await fetch(`${API}/feedback`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId: currentSessionId, question: q, correction: a })
-  });
-
-  feedbackQ.value = '';
-  feedbackA.value = '';
-  feedbackBtn.textContent = '✓ LEARNED!';
-  setTimeout(() => { feedbackBtn.textContent = 'SUBMIT CORRECTION'; }, 2000);
-  appendMessage('assistant', `✅ Got it! I've learned: "${a}" — I'll remember this for all future conversations.`);
-});
 
 // ── Event Listeners ────────────────────────────
 sendBtn.addEventListener('click', sendMessage);
@@ -545,17 +707,45 @@ userInput.addEventListener(
 );
 
 
-logoutBtn.addEventListener(
+if (logoutBtn) {
+
+  logoutBtn.addEventListener(
+    'click',
+    () => {
+
+      localStorage.removeItem(
+        'token'
+      );
+
+      authToken = null;
+
+      location.reload();
+    }
+  );
+}
+
+newChatBtn.addEventListener(
   'click',
-  () => {
+  async () => {
 
-    localStorage.removeItem(
-      'token'
-    );
+    try {
 
-    authToken = null;
+      await createSession();
 
-    location.reload();
+      appendMessage(
+        'assistant',
+        '🚀 New mission initialized'
+      );
+
+    } catch (err) {
+
+      console.error(err);
+
+      appendMessage(
+        'assistant',
+        '❌ Failed to create session'
+      );
+    }
   }
 );
 
@@ -684,6 +874,7 @@ loginBtn.addEventListener('click', async () => {
 
     // LOAD CHATBOT
     await loadSessions();
+    await loadTasks();
 
     const res2 = await fetch(
       `${API}/sessions`,
@@ -730,6 +921,8 @@ loginBtn.addEventListener('click', async () => {
       'none';
 
     await loadSessions();
+
+    await loadTasks();
 
     await refreshMemoryStats();
 

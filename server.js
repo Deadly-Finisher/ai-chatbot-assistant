@@ -20,6 +20,7 @@ const fs = require('fs-extra');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const PDFRepository = require('./db/PDFRepository');
+const TaskRepository = require('./db/TaskRepository');
 
 
 
@@ -38,6 +39,8 @@ const app = express();
 const userRepo = new UserRepository();
 const pdfRepo =
   new PDFRepository();
+const taskRepo =
+  new TaskRepository();
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('.'));
@@ -301,6 +304,33 @@ class SessionStore {
 // ─────────────────────────────────────────────
 
 // ─────────────────────────────────────────────
+// SMALL TALK DETECTION
+// ─────────────────────────────────────────────
+
+function isSmallTalk(query) {
+
+  const smallTalkPatterns = [
+    /^hi$/i,
+    /^hello$/i,
+    /^hey$/i,
+    /^yo$/i,
+    /^good morning$/i,
+    /^good evening$/i,
+    /^how are you$/i,
+    /^thanks?$/i,
+    /^ok$/i,
+    /^okay$/i
+  ];
+
+  return smallTalkPatterns.some(
+    pattern =>
+      pattern.test(
+        query.trim()
+      )
+  );
+}
+
+// ─────────────────────────────────────────────
 // WEB SEARCH DETECTION
 // ─────────────────────────────────────────────
 
@@ -309,26 +339,19 @@ function needsWebSearch(query) {
   const realtimePatterns = [
     /latest/i,
     /today/i,
-    /current/i,
     /news/i,
-    /recent/i,
     /weather/i,
     /price/i,
     /stock/i,
     /live/i,
-    /score/i,
-    /2026/i,
-    /internet/i,
-    /search/i,
-    /who won/i
+    /score/i
   ];
 
-  return realtimePatterns.some(pattern =>
-    pattern.test(query)
+  return realtimePatterns.some(
+    pattern =>
+      pattern.test(query)
   );
 }
-
-
 // ─────────────────────────────────────────────
 // RAG AGENT
 // ─────────────────────────────────────────────
@@ -501,6 +524,78 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
 
   async chat(userId, sessionId, userMessage) {
+
+    // ─────────────────────────────
+    // FAST SMALL-TALK RESPONSES
+    // ─────────────────────────────
+
+    if (isSmallTalk(userMessage)) {
+
+      const quickReplies = {
+
+        hi: "Hello 👋",
+
+        hello: "Hello 👋",
+
+        hey: "Hey there 🚀",
+
+        yo: "Yo 🚀",
+
+        "good morning":
+          "Good morning ☀️",
+
+        "good evening":
+          "Good evening 🌙",
+
+        "how are you":
+          "I'm functioning perfectly 🚀",
+
+        thanks:
+          "You're welcome 🚀",
+
+        ok:
+          "👍",
+
+        okay:
+          "👍"
+      };
+
+      const normalized =
+        userMessage
+          .trim()
+          .toLowerCase();
+
+      const response =
+        quickReplies[normalized]
+        || "Hello 👋";
+
+      // Store lightweight conversation
+      this.sessions.addMessage(
+        sessionId,
+        'user',
+        userMessage
+      );
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
+
+      return {
+
+        response,
+
+        memoryUsed: false,
+
+        knowledgeUsed: false,
+
+        sources: [],
+
+        memoryStats:
+          this.memory.getStats()
+      };
+    }
 
     // Store user message in memory
     this.memory.add({
@@ -1363,6 +1458,140 @@ ${combinedText}
       res.status(500).json({
         error:
           'Study planner generation failed'
+      });
+    }
+  }
+);
+
+// ─────────────────────────────────────────────
+// TASK MANAGEMENT APIs
+// ─────────────────────────────────────────────
+
+// Create task
+app.post(
+  '/api/tasks',
+
+  authMiddleware,
+
+  (req, res) => {
+
+    try {
+
+      const {
+        title,
+        deadline,
+        priority
+      } = req.body;
+
+      const task = {
+
+        id:
+          Date.now().toString(),
+
+        userId:
+          req.user.userId,
+
+        title,
+
+        deadline,
+
+        priority:
+          priority || 'medium',
+
+        completed:
+          false,
+
+        createdAt:
+          new Date().toISOString()
+      };
+
+      taskRepo.addTask(task);
+
+      res.json({
+        success: true,
+        task
+      });
+
+    } catch (err) {
+
+      console.error(err);
+
+      res.status(500).json({
+        error:
+          'Failed to create task'
+      });
+    }
+  }
+);
+
+// Get user tasks
+app.get(
+  '/api/tasks',
+
+  authMiddleware,
+
+  (req, res) => {
+
+    try {
+
+      const tasks =
+        taskRepo.getUserTasks(
+          req.user.userId
+        );
+
+      res.json({
+        success: true,
+        tasks
+      });
+
+    } catch (err) {
+
+      console.error(err);
+
+      res.status(500).json({
+        error:
+          'Failed to fetch tasks'
+      });
+    }
+  }
+);
+
+// Mark task complete
+app.put(
+  '/api/tasks/:id',
+
+  authMiddleware,
+
+  (req, res) => {
+
+    try {
+
+      const updated =
+        taskRepo.updateTask(
+          req.params.id,
+          req.body
+        );
+
+      if (!updated) {
+
+        return res.status(404).json({
+          error:
+            'Task not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        task: updated
+      });
+
+    } catch (err) {
+
+      console.error(err);
+
+      res.status(500).json({
+        error:
+          'Failed to update task'
       });
     }
   }
