@@ -86,6 +86,44 @@ const groq = new Groq({
 
 const MODEL = 'llama-3.3-70b-versatile';
 
+// ─────────────────────────────
+// EMBEDDING MODEL
+// ─────────────────────────────
+
+// ─────────────────────────────
+// EMBEDDING MODEL
+// ─────────────────────────────
+
+let embedder = null;
+
+async function loadEmbeddingModel() {
+
+  if (!embedder) {
+
+    console.log(
+      '🧠 Loading embedding model...'
+    );
+
+    const {
+      pipeline
+    } = await import(
+      '@xenova/transformers'
+    );
+
+    embedder =
+      await pipeline(
+        'feature-extraction',
+        'Xenova/all-MiniLM-L6-v2'
+      );
+
+    console.log(
+      '✅ Embedding model loaded'
+    );
+  }
+
+  return embedder;
+}
+
 const tavilyClient = tavily({
   apiKey: process.env.TAVILY_API_KEY,
 });
@@ -1107,6 +1145,63 @@ Use your own built-in knowledge.
     const responseText =
       result.choices[0].message.content;
 
+    // ─────────────────────────────
+    // TOKEN USAGE TRACKING
+    // ─────────────────────────────
+
+    const usage =
+      result.usage || {};
+
+    const promptTokens =
+      usage.prompt_tokens || 0;
+
+    const completionTokens =
+      usage.completion_tokens || 0;
+
+    const totalTokens =
+      usage.total_tokens || 0;
+
+    // Your Groq daily limit
+    const DAILY_LIMIT = 100000;
+
+    // Running total
+    global.tokenUsage =
+      (global.tokenUsage || 0)
+      + totalTokens;
+
+    const remaining =
+      DAILY_LIMIT -
+      global.tokenUsage;
+
+    console.log('\n📊 TOKEN USAGE');
+    console.log(
+      '────────────────────────'
+    );
+
+    console.log(
+      `🧠 Prompt Tokens: ${promptTokens}`
+    );
+
+    console.log(
+      `💬 Completion Tokens: ${completionTokens}`
+    );
+
+    console.log(
+      `📦 Total Tokens: ${totalTokens}`
+    );
+
+    console.log(
+      `⚡ Tokens Used Today: ${global.tokenUsage}`
+    );
+
+    console.log(
+      `🟢 Tokens Remaining: ${remaining}`
+    );
+
+    console.log(
+      '────────────────────────\n'
+    );
+
 
     // Store assistant response
     this.memory.add({
@@ -1200,6 +1295,9 @@ Use your own built-in knowledge.
 // INITIALIZE AGENT
 // ─────────────────────────────────────────────
 const agent = new RAGAgent();
+
+// Load embedding model on startup
+loadEmbeddingModel();
 
 // ─────────────────────────────────────────────
 // AUTH MIDDLEWARE
