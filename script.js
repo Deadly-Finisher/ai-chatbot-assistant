@@ -61,6 +61,11 @@ const generateNotesBtn =
     'generate-notes-btn'
   );
 
+const generatePlanBtn =
+  document.getElementById(
+    'generate-plan-btn'
+  );
+
 // ─────────────────────────────────────────────
 // PDF Upload
 // ─────────────────────────────────────────────
@@ -198,6 +203,67 @@ generateNotesBtn.addEventListener(
       appendMessage(
         'assistant',
         '❌ Failed to generate notes'
+      );
+    }
+  }
+);
+
+// ─────────────────────────────────────────────
+// STUDY PLAN GENERATION
+// ─────────────────────────────────────────────
+
+generatePlanBtn.addEventListener(
+  'click',
+
+  async () => {
+
+    try {
+
+      appendMessage(
+        'assistant',
+        '📅 Generating AI study plan from uploaded PDFs...'
+      );
+
+      const res =
+        await fetch(
+          `${API}/planner/generate`,
+          {
+            method: 'POST',
+
+            headers: {
+              'Authorization':
+                `Bearer ${authToken}`,
+              'Content-Type':
+                'application/json'
+            }
+          }
+        );
+
+      const data =
+        await res.json();
+
+      if (data.success) {
+
+        appendMessage(
+          'assistant',
+          data.plan
+        );
+
+      } else {
+
+        appendMessage(
+          'assistant',
+          `❌ ${data.error}`
+        );
+      }
+
+    } catch (err) {
+
+      console.error(err);
+
+      appendMessage(
+        'assistant',
+        '❌ Failed to generate study plan'
       );
     }
   }

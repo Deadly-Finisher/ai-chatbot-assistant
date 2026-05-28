@@ -215,10 +215,52 @@ html, body {
     0.2s;
 }
 
+
 #generate-notes-btn:hover {
 
   background:
     rgba(0, 200, 255, 0.25);
+}
+
+#generate-plan-btn {
+
+  width: 100%;
+
+  background:
+    rgba(255, 180, 0, 0.12);
+
+  border:
+    1px solid rgba(255, 180, 0, 0.35);
+
+  color:
+    #ffd36b;
+
+  font-family:
+    var(--font-hud);
+
+  font-size:
+    10px;
+
+  padding:
+    10px;
+
+  border-radius:
+    6px;
+
+  cursor:
+    pointer;
+
+  margin-bottom:
+    10px;
+
+  transition:
+    0.2s;
+}
+
+#generate-plan-btn:hover {
+
+  background:
+    rgba(255, 180, 0, 0.25);
 }
 
 #new-chat-btn:hover { background: rgba(0,212,255,0.25); box-shadow: 0 0 12px rgba(0,212,255,0.4); }

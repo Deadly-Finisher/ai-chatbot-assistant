@@ -1244,6 +1244,131 @@ ${combinedText}
 );
 
 // ─────────────────────────────────────────────
+// STUDY PLANNER GENERATION
+// ─────────────────────────────────────────────
+
+app.post(
+  '/api/planner/generate',
+
+  authMiddleware,
+
+  async (req, res) => {
+
+    try {
+
+      const userId =
+        req.user.userId;
+
+      // Get uploaded PDFs
+      const documents =
+        pdfRepo.getUserDocuments(
+          userId
+        );
+
+      if (!documents.length) {
+
+        return res.status(400).json({
+          error:
+            'No PDFs uploaded'
+        });
+      }
+
+      // Merge chunks
+      let combinedText = '';
+
+      documents.forEach(doc => {
+
+        combinedText +=
+          `\n\nDOCUMENT: ${doc.filename}\n`;
+
+        combinedText +=
+          doc.chunks
+            .slice(0, 8)
+            .join('\n');
+      });
+
+      // Limit size
+      combinedText =
+        combinedText.substring(
+          0,
+          12000
+        );
+
+      // Planner prompt
+      const prompt = `
+Generate a structured 7-day study plan from the following academic material.
+
+FORMAT:
+
+# 7-Day Study Plan
+
+## Day 1
+- Topics
+- Estimated study time
+- Revision tasks
+
+## Day 2
+...
+
+Include:
+- priorities
+- revision strategy
+- difficulty progression
+- exam preparation tips
+
+CONTENT:
+${combinedText}
+`;
+
+      const result =
+        await groq.chat.completions.create({
+
+          model: MODEL,
+
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an expert AI study planner.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+
+          temperature: 0.5,
+
+          max_tokens: 1800
+        });
+
+      const plan =
+        result.choices[0]
+          .message.content;
+
+      res.json({
+
+        success: true,
+
+        plan
+      });
+
+    } catch (err) {
+
+      console.error(
+        'Study planner error:',
+        err
+      );
+
+      res.status(500).json({
+        error:
+          'Study planner generation failed'
+      });
+    }
+  }
+);
+
+// ─────────────────────────────────────────────
 // START SERVER
 // ─────────────────────────────────────────────
 const PORT = 5000;
