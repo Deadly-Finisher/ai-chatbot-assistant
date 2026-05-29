@@ -235,6 +235,45 @@ function embeddingSimilarity(
   );
 }
 
+function keywordSimilarity(
+  query,
+  text
+) {
+
+  const queryWords =
+    query
+      .toLowerCase()
+      .split(/\W+/)
+      .filter(w => w.length > 2);
+
+  const textWords =
+    new Set(
+      text
+        .toLowerCase()
+        .split(/\W+/)
+    );
+
+  let matches = 0;
+
+  for (const word of queryWords) {
+
+    if (
+      textWords.has(word)
+    ) {
+
+      matches++;
+    }
+  }
+
+  return (
+    matches /
+    Math.max(
+      queryWords.length,
+      1
+    )
+  );
+}
+
 // ─────────────────────────────────────────────
 // MEMORY STORE
 // ─────────────────────────────────────────────
@@ -627,6 +666,11 @@ class RAGAgent {
             )
         );
 
+      console.log(
+        '🎯 Target PDF:',
+        sortedDocs[0]?.filename
+        );
+
       return sortedDocs[0];
       }
 
@@ -643,8 +687,28 @@ class RAGAgent {
         )
       ) {
 
+        console.log(
+          '🎯 Matched PDF:',
+          doc.filename
+        );
+
         return doc;
       }
+    }
+
+    return null;
+  }
+
+  getDocumentSummary(
+    targetDocument
+  ) {
+
+    if (
+      targetDocument &&
+      targetDocument.summary
+    ) {
+
+      return targetDocument.summary;
     }
 
     return null;
@@ -687,23 +751,20 @@ class RAGAgent {
             doc.filename,
 
           text:
-            chunk
+            chunk.text,
+
+          embedding:
+            chunk.embedding,
+
+          chunkIndex:
+            chunk.chunkIndex,
+
+          relativePosition:
+            chunk.relativePosition
         });
       });
-    });
+        });
 
-    // If a specific document is detected,
-    // directly use its first chunks
-
-    if (targetDocument) {
-
-      return allChunks
-        .slice(0, topK)
-        .map(chunk => ({
-          ...chunk,
-          score: 1
-        }));
-    }
 
     // Otherwise use TF-IDF retrieval
 
@@ -720,18 +781,27 @@ class RAGAgent {
 
     for (const chunk of allChunks) {
 
-      const chunkEmbedding =
-        await createEmbedding(
-          chunk.text.substring(
-            0,
-            1000
-          )
+      if (!chunk.embedding)
+        continue;
+
+      const embeddingScore =
+        embeddingSimilarity(
+          queryEmbedding,
+          chunk.embedding
+        );
+
+      const keywordScore =
+        keywordSimilarity(
+          query,
+          chunk.text
         );
 
       const score =
-        embeddingSimilarity(
-          queryEmbedding,
-          chunkEmbedding
+        (
+          0.7 * embeddingScore
+        ) +
+        (
+          0.3 * keywordScore
         );
 
       scoredChunks.push({
@@ -742,18 +812,51 @@ class RAGAgent {
       });
     }
 
-    return scoredChunks
-      .sort(
-        (a, b) =>
-          b.score - a.score
-      )
-      .slice(0, topK);
+    const topChunks =
+      scoredChunks
+        .sort(
+          (a, b) =>
+            b.score - a.score
+        )
+        .slice(0, topK);
+
+    console.log(
+      '\n🔍 TOP RETRIEVED CHUNKS'
+    );
+
+    topChunks.forEach(
+      (chunk, index) => {
+
+        console.log(
+          `\n#${index + 1}`
+        );
+
+        console.log(
+          'Score:',
+          chunk.score
+        );
+
+        console.log(
+          'Source:',
+          chunk.filename
+        );
+
+        console.log(
+          chunk.text
+            .substring(0, 200)
+            .replace(/\n/g, ' ')
+        );
+      }
+    );
+
+    return topChunks;
   }
 
   async buildSystemPrompt(
     userId,
     query,
-    sessionId
+    sessionId,
+    pdfChunks = []
   ){
 
     // Detect target PDF
@@ -761,6 +864,11 @@ class RAGAgent {
       this.detectTargetDocument(
         userId,
         query
+      );
+
+    const documentSummary =
+      this.getDocumentSummary(
+        targetDocument
       );
 
     // 1. Retrieve relevant long-term memories
@@ -780,12 +888,7 @@ class RAGAgent {
     // PDF RAG Retrieval
     // ─────────────────────────────
 
-    const pdfChunks =
-      await this.retrieveRelevantPDFChunks(
-        userId,
-        query,
-        2
-      );
+    
 
     if (
 
@@ -822,10 +925,36 @@ class RAGAgent {
 
       });
     }
+
+    const summaryQuery =
+      /summary|summarize|overview|contribution|main contribution|what is this paper about/i;
+
+    if (
+      summaryQuery.test(query) &&
+      documentSummary
+    ) {
+
+      contextBlock += `
+### DOCUMENT SUMMARY
+
+${documentSummary}
+
+IMPORTANT:
+For summary, overview, contribution,
+and paper-description questions,
+use the DOCUMENT SUMMARY as the primary source.
+`;
+    }
     if (pdfChunks.length > 0) {
 
-      contextBlock +=
-        `\n### RELEVANT PDF CONTEXT:\n`;
+      contextBlock += `
+### RELEVANT PDF CONTEXT
+
+IMPORTANT:
+The answer MUST be derived from the PDF context below.
+Do NOT answer from memory if PDF context exists.
+
+`;
 
       pdfChunks.forEach(
         (chunk, index) => {
@@ -843,15 +972,34 @@ class RAGAgent {
 
 STRICT RULES TO PREVENT HALLUCINATION:
 
-1. ONLY answer based on the context provided below or well-established facts you are certain about.
+1. If DOCUMENT SUMMARY is provided,
+use it as the primary source for:
 
-2. If you don't know something or it's not in context, say "I don't have information about that" — never make up facts.
+- summaries
+- overviews
+- contributions
+- paper descriptions
 
-3. If the user corrects you, accept the correction, apologize briefly, and update your understanding.
+2. If PDF chunks are provided,
+use them for detailed factual questions.
 
-4. Always cite when you're using memory: say "(from memory)" when referencing past conversations.
+3. Answer ONLY from the provided PDF information.
 
-5. Be honest about uncertainty: use phrases like "I believe...", "Based on what I know...", "I'm not certain but..."
+4. Give priority in this order:
+   PDF Context > Web Search > Knowledge Base > Memory
+
+5. Never use memory when answering questions about an uploaded PDF.
+
+6. If the answer is not present in the PDF context, say:
+   "I couldn't find that information in the uploaded PDF."
+
+7. Do not guess, infer, or hallucinate missing details.
+
+8. If the user corrects you, accept the correction, apologize briefly, and update your understanding.
+
+9. Always cite when you're using memory: say "(from memory)" when referencing past conversations.
+
+10. Be honest about uncertainty: use phrases like "I believe...", "Based on what I know...", "I'm not certain but..."
 
 PERSONA:
 
@@ -1066,28 +1214,45 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
     // ─────────────────────────────
 
     let pdfSources = [];
+let pdfChunks = [];
 
-    if (intent === 'rag') {
+const summaryQuery =
+  /summary|summarize|overview|contribution|main contribution|what is this paper about/i;
 
-      const pdfChunks =
-        await this.retrieveRelevantPDFChunks(
-          userId,
-          userMessage,
-          5
-        );
+if (
+  intent === 'rag' &&
+  !summaryQuery.test(userMessage)
+) {
 
-      pdfSources =
-        [
-          ...new Set(
-            pdfChunks.map(
-              c => c.filename
-            )
-          )
-        ];
-    }
+  pdfChunks =
+    await this.retrieveRelevantPDFChunks(
+      userId,
+      userMessage,
+      5
+    );
 
+  pdfSources =
+    [
+      ...new Set(
+        pdfChunks.map(
+          c => c.filename
+        )
+      )
+    ];
+}
+
+
+console.log(
+  '📄 Summary Query:',
+  summaryQuery.test(userMessage)
+);
     const systemPrompt =
-      await this.buildSystemPrompt(userId,userMessage, sessionId);
+      await this.buildSystemPrompt(
+        userId,
+        userMessage,
+        sessionId,
+        pdfChunks
+      );
 
     // ─────────────────────────────────────────────
     // REALTIME INTERNET SEARCH
@@ -1683,7 +1848,7 @@ app.post(
       // CHUNKING
       // ─────────────────────────────
 
-      const chunkSize = 1200;
+      const chunkSize = 800;
 
       const chunks = [];
 
@@ -1693,11 +1858,116 @@ app.post(
         i += chunkSize
       ) {
 
-        chunks.push(
+        const text =
           fullText.substring(
             i,
             i + chunkSize
-          )
+          );
+
+        chunks.push({
+
+          text,
+
+          chunkIndex:
+            chunks.length,
+
+          relativePosition:
+            i / fullText.length
+          });
+      }
+
+      // ─────────────────────────────
+      // GENERATE EMBEDDINGS
+      // ─────────────────────────────
+
+      console.log(
+        '🧠 Generating chunk embeddings...'
+      );
+
+      for (const chunk of chunks) {
+
+        chunk.embedding =
+          await createEmbedding(
+            chunk.text
+          );
+      }
+
+      console.log(
+        '✅ Embeddings generated'
+      );
+
+      // ─────────────────────────────
+      // GENERATE PDF SUMMARY
+      // ─────────────────────────────
+
+      let pdfSummary =
+        'Summary unavailable';
+
+      try {
+
+        console.log(
+          '📝 Generating PDF summary...'
+        );
+
+        const summaryPrompt = `
+Analyze this PDF and identify its document type.
+
+Possible types:
+- Research Paper
+- Certificate
+- Resume
+- Notes
+- Report
+- Other
+
+Then provide a concise summary appropriate for that document type.
+
+Content:
+
+${fullText.substring(0, 4000)}
+`;
+
+        const summaryResult =
+          await groq.chat.completions.create({
+
+            model: MODEL,
+
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are an expert research paper analyst.'
+              },
+              {
+                role: 'user',
+                content:
+                  summaryPrompt
+              }
+            ],
+
+            temperature: 0.2,
+
+            max_tokens: 500
+          });
+
+        pdfSummary =
+          summaryResult
+            .choices[0]
+            .message.content;
+
+        console.log(
+          '✅ PDF summary generated'
+        );
+
+      }
+      catch (err) {
+
+        console.log(
+          '⚠️ Summary generation skipped'
+        );
+
+        console.log(
+          err.message
         );
       }
 
@@ -1712,6 +1982,9 @@ app.post(
 
         filename:
           req.file.originalname,
+
+        summary:
+          pdfSummary,
 
         path:
           req.file.path,
@@ -1791,6 +2064,7 @@ app.post(
         combinedText +=
           doc.chunks
             .slice(0, 8)
+            .map(c => c.text)
             .join('\n');
       });
 
@@ -1911,6 +2185,7 @@ app.post(
         combinedText +=
           doc.chunks
             .slice(0, 8)
+            .map(c => c.text)
             .join('\n');
       });
 
