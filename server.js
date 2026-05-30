@@ -35,7 +35,7 @@ const {
   FeedbackRepository,
 } = require('./db/repositories');
 const UserRepository =
-  require('./db/UserRepository');
+  require('./db/MongoUserRepository');
 
 
 const app = express();
@@ -1210,6 +1210,40 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
       };
       }
 
+    
+
+    if (
+      normalizedQuery.includes('last pdf') ||
+      normalizedQuery.includes('latest pdf') ||
+      normalizedQuery.includes('last uploaded pdf') ||
+      normalizedQuery.includes('name of the last pdf')
+    ) {
+
+      const documents =
+        pdfRepo.getUserDocuments(userId);
+
+      if (!documents.length) {
+
+        return {
+          response: 'No PDFs uploaded.',
+          sources: []
+        };
+      }
+
+      const latest =
+        [...documents].sort(
+          (a, b) =>
+            new Date(b.uploadedAt) -
+            new Date(a.uploadedAt)
+        )[0];
+
+      return {
+        response:
+          `📄 Latest PDF: ${latest.filename}`,
+        sources: [latest.filename]
+      };
+    }
+
     // ─────────────────────────────
     // TRACK PDF SOURCES
     // ─────────────────────────────
@@ -1715,7 +1749,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const existing =
-      userRepo.findByUsername(username);
+      await userRepo.findByUsername(username);
 
     if (existing) {
 
@@ -1728,7 +1762,7 @@ app.post('/api/auth/register', async (req, res) => {
       await bcrypt.hash(password, 10);
 
     const user =
-      userRepo.createUser(
+      await userRepo.createUser(
         username,
         hashedPassword
       );
@@ -1755,7 +1789,7 @@ app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
 
     const user =
-      userRepo.findByUsername(username);
+      await userRepo.findByUsername(username);
 
     if (!user) {
 
