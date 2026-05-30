@@ -1,75 +1,234 @@
-# AI Research Assistant Chatbot
+# RAG Agentic AI Chatbot
 
-An Agentic AI Research Assistant that supports PDF-based Retrieval-Augmented Generation (RAG), document summarization, study note generation, research planning, memory, and semantic search using MongoDB and Qdrant.
+A full-stack Agentic RAG (Retrieval-Augmented Generation) chatbot built with Node.js, Express, MongoDB, Qdrant, Groq LLMs, and Tavily Web Search.
+
+The chatbot supports PDF ingestion, semantic search, study note generation, study planning, task management, memory, and real-time web search.
 
 ---
 
 # Features
 
-## User Management
+## Authentication
 
 * User Registration
 * User Login
-* Secure Password Hashing
-* MongoDB User Storage
+* JWT Authentication
+* Protected API Routes
 
 ---
 
-## PDF Management
+## PDF Knowledge Base
 
-* Upload PDF Documents
-* Automatic Text Extraction
-* Chunk Generation
-* Embedding Generation
-* Semantic Search
-* Latest PDF Detection
-* PDF Collection Management
+* Upload PDF documents
+* Automatic PDF text extraction
+* Chunking of large documents
+* Embedding generation
+* Vector storage in Qdrant
+* Semantic document retrieval
+* Multi-document support
 
----
+Supported Queries:
 
-## Research Assistance
-
-* Structured PDF Summaries
-* Key Contributions Extraction
-* Methodology Extraction
-* Applications Extraction
-* Limitations Extraction
-* Research-Oriented Notes Generation
-* 7-Day Research Study Planner
-* Viva Question Generation
-* Exam Question Generation
-
----
-
-## RAG (Retrieval-Augmented Generation)
-
-* Semantic PDF Retrieval
-* Context-Aware Question Answering
-* Multi-Document Search
-* Qdrant Vector Database Integration
-* User-Specific Document Filtering
-
----
-
-## Conversation Memory
-
-* Current Document Tracking
-* Current Topic Tracking
-* Current Entity Tracking
-* Intent Tracking
-* Follow-Up Question Resolution
+* Latest uploaded PDF
+* List all uploaded PDFs
+* Count uploaded PDFs
+* Summarize PDF
+* Ask questions about PDFs
+* Follow-up document conversations
 
 Examples:
 
-* What is the latest PDF?
-* Summarize it
-* What is its contribution?
-* How many PDFs do I have?
-* Name them
+```text
+What is the latest PDF?
+
+Summarize it
+
+What are its contributions?
+
+How does it compare with CLIP?
+```
 
 ---
 
-# Technology Stack
+## RAG Pipeline
+
+### Flow
+
+```text
+User Query
+      ↓
+Intent Detection
+      ↓
+Vector Search (Qdrant)
+      ↓
+Relevant Chunks Retrieval
+      ↓
+Groq LLM
+      ↓
+Final Answer
+```
+
+### Components
+
+* PDF Processing
+* Chunking
+* Embeddings
+* Qdrant Vector Database
+* Context Retrieval
+* Response Generation
+
+---
+
+## Agentic AI Features
+
+### Intent Detection
+
+Automatically detects:
+
+* PDF Queries
+* Research Queries
+* Task Queries
+* Study Planning Queries
+* Notes Generation Queries
+* Web Search Queries
+* General Conversation
+
+---
+
+## Long-Term Memory
+
+Stores:
+
+* Previous conversations
+* User preferences
+* Learning context
+
+Used for:
+
+* Follow-up conversations
+* Context retention
+* Personalized responses
+
+---
+
+## Document Context Tracking
+
+The chatbot remembers the current document.
+
+Example:
+
+```text
+What is the latest PDF?
+
+→ BLIP-2.pdf
+
+Summarize it
+
+→ BLIP-2 Summary
+
+What are its contributions?
+
+→ BLIP-2 Contributions
+```
+
+No need to repeatedly specify document names.
+
+---
+
+# Study Notes Generator
+
+Generate structured study notes from uploaded PDFs.
+
+Example:
+
+```text
+Generate notes
+```
+
+Output includes:
+
+* Topic summaries
+* Key concepts
+* Important formulas
+* Research contributions
+* Exam revision points
+
+---
+
+# Study Planner Generator
+
+Automatically creates study plans from uploaded PDFs.
+
+Example:
+
+```text
+Generate study plan
+```
+
+Features:
+
+* Multi-day learning schedule
+* Topic ordering
+* Learning objectives
+* Revision planning
+* Viva preparation
+
+---
+
+# Task Management
+
+Automatically creates tasks from generated study plans.
+
+Features:
+
+* Task creation
+* Deadline generation
+* Task listing
+* Completion tracking
+* Priority tracking
+
+Example:
+
+```text
+Show my tasks
+```
+
+Output:
+
+```text
+Day 1 - Foundations
+Deadline: 31/05/2026
+
+Day 2 - Core Concepts
+Deadline: 01/06/2026
+```
+
+---
+
+# Web Search
+
+Real-time web search using Tavily.
+
+Example:
+
+```text
+Can you fetch land prices in the USA?
+
+Latest papers on diabetic retinopathy VLMs
+
+Recent AI conference deadlines
+```
+
+Features:
+
+* Internet search
+* Research search
+* Current information retrieval
+* Source citation support
+
+---
+
+# Tech Stack
 
 ## Backend
 
@@ -78,248 +237,198 @@ Examples:
 
 ## Database
 
-* MongoDB Atlas
+* MongoDB
 
 Collections:
 
-* users
-* documents
-* sessioncontexts
+* Users
+* Documents
+* SessionContexts
 
 ## Vector Database
 
 * Qdrant
 
-Stores:
-
-* PDF Chunk Embeddings
-* Semantic Search Vectors
-
 ## AI Models
-
-### Embeddings
-
-* Xenova Transformers
 
 ### LLM
 
 * Groq API
+* Llama 3.3 70B Versatile
 
-Supported Models:
+### Embeddings
 
-* Llama
-* Qwen
-* DeepSeek
-* Gemma
+* Xenova Transformers
+* all-MiniLM-L6-v2
+
+## Web Search
+
+* Tavily API
 
 ---
 
 # Project Structure
 
 ```text
-CHATBOT/
+Chatbot/
+│
+├── server.js
 │
 ├── db/
-│   ├── MongoDocumentRepository.js
 │   ├── MongoUserRepository.js
-│   ├── TaskRepository.js
+│   ├── MongoDocumentRepository.js
+│   └── TaskRepository.js
 │
 ├── models/
+│   ├── User.js
 │   ├── Document.js
-│   ├── SessionContext.js
-│   ├── user.js
+│   └── SessionContext.js
 │
 ├── services/
 │   ├── DocumentService.js
 │   ├── DocumentContextService.js
-│   ├── QdrantService.js
+│   ├── EmbeddingService.js
+│   └── MemoryService.js
 │
 ├── uploads/
 │
-├── server.js
-├── qdrant.js
-├── qdrant-init.js
-├── package.json
+├── data/
+│   ├── tasks.json
+│   ├── memory.json
+│   ├── knowledge.json
+│   └── sessions.json
 │
-└── README.md
+└── public/
 ```
 
 ---
 
-# Storage Architecture
+# Environment Variables
 
-## MongoDB
+Create a `.env` file:
 
-### users
+```env
+PORT=5000
 
-Stores:
+JWT_SECRET=your_secret
 
-* User Information
-* Login Credentials
+MONGODB_URI=your_mongodb_connection_string
 
-### documents
+GROQ_API_KEY=your_groq_api_key
 
-Stores:
+TAVILY_API_KEY=your_tavily_api_key
 
-* User ID
-* Filename
-* Summary
-* File Path
-* Upload Date
+QDRANT_URL=your_qdrant_url
 
-### sessioncontexts
-
-Stores:
-
-* User ID
-* Current Document
-* Current Topic
-* Current Entity
-* Last Intent
-* Updated Time
-
----
-
-## Qdrant
-
-Collection:
-
-```text
-pdf_chunks
-```
-
-Payload:
-
-```json
-{
-  "userId": "...",
-  "filename": "...",
-  "text": "..."
-}
-```
-
-Stores semantic embeddings for PDF chunks.
-
----
-
-# Supported Commands
-
-## PDF Commands
-
-```text
-What is the latest PDF?
-Summarize it
-What is its contribution?
-How many PDFs do I have?
-Name them
-```
-
-## Research Commands
-
-```text
-Generate notes
-Generate study plan
-Create viva questions
-Create exam questions
-```
-
-## RAG Commands
-
-```text
-Explain self-attention
-What is Flamingo?
-Compare CLIP and MedCLIP
-Explain Vision Transformer
+QDRANT_API_KEY=your_qdrant_api_key
 ```
 
 ---
 
-# Setup
+# Installation
 
-## Install Dependencies
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-## Configure Environment Variables
-
-Create:
-
-```text
-.env
-```
-
-Example:
-
-```env
-MONGO_URI=your_mongodb_connection_string
-
-QDRANT_URL=your_qdrant_url
-QDRANT_API_KEY=your_qdrant_api_key
-
-GROQ_API_KEY=your_groq_api_key
-```
-
----
-
-# Start Application
+Run:
 
 ```bash
 node server.js
 ```
 
-Server:
+Expected startup:
 
 ```text
-http://localhost:5000
+Loading AI models...
+AI models loaded
+
+MongoDB Connected
+Database indexes ready
+Qdrant collection exists
+
+RAG Agentic AI Chatbot running at http://localhost:5000
 ```
 
 ---
 
-# Completed Migrations
+# API Features
 
-## MongoDB Migration
+## Authentication
 
-Completed
+```text
+POST /api/register
+POST /api/login
+```
 
-* Users moved from JSON to MongoDB
-* Documents moved from JSON to MongoDB
-* Session Context moved to MongoDB
+## PDF Upload
 
-## Qdrant Migration
+```text
+POST /api/upload-pdf
+```
 
-Completed
+## Chat
 
-* Embeddings moved to Qdrant
-* Semantic Search moved to Qdrant
+```text
+POST /api/chat
+```
 
-## Service Layer Refactor
+## Notes
 
-Completed
+```text
+POST /api/notes/generate
+```
 
-* DocumentService
-* DocumentContextService
-* QdrantService
+## Planner
+
+```text
+POST /api/planner/generate
+```
+
+## Tasks
+
+```text
+GET /api/tasks
+POST /api/tasks
+PUT /api/tasks/:id
+DELETE /api/tasks/:id
+```
 
 ---
 
-# Future Enhancements
+# Current Status
 
-* Multi-PDF Comparative Analysis
-* Citation Extraction
-* Research Gap Detection
-* Thesis Topic Recommendation
-* Paper Recommendation Engine
-* Agentic Research Workflow
-* Medical VLM Research Assistant
+## Completed
+
+* Authentication
+* MongoDB Integration
+* PDF Upload
+* PDF Summarization
+* Qdrant Search
+* RAG Retrieval
+* Memory
+* Context Tracking
+* Web Search
+* Notes Generation
+* Study Planner
+* Task Creation
+* Deadline Generation
+
+## Future Improvements
+
+* Migrate TaskRepository from JSON to MongoDB
+* Multi-user task analytics
+* Calendar integration
+* Research paper recommendation engine
+* Agent workflow orchestration
+* Citation-aware answer generation
 
 ---
 
-# Author
+# Version
 
-Sougata Roy
+Current Version: v1.0 Stable
 
-M.Tech (Computer Science)
-
-AI Research | Computer Vision | Vision Language Models | Deep Learning
+Status: Production Ready

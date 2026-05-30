@@ -49,9 +49,7 @@ async function initQdrant() {
                 }
             );
 
-            console.log(
-                '✅ userId index created'
-            );
+            
 
         } catch (err) {
 
@@ -71,10 +69,7 @@ async function initQdrant() {
                 }
             );
 
-            console.log(
-                '✅ filename index created'
-            );
-
+            console.log('✅ Database indexes ready');
         } catch (err) {
 
             console.log(

@@ -8,10 +8,7 @@
 
 require('dotenv').config();
 
-console.log(
-  'Groq Key Prefix:',
-  process.env.GROQ_API_KEY?.substring(0, 15)
-);
+
 
 const connectDB = require('./db');
 const initQdrant =
@@ -135,9 +132,7 @@ async function loadEmbeddingModel() {
 
   if (!embedder) {
 
-    console.log(
-      '🧠 Loading embedding model...'
-    );
+    console.log('Loading AI models...');
 
     const {
       pipeline
@@ -151,9 +146,7 @@ async function loadEmbeddingModel() {
         'Xenova/all-MiniLM-L6-v2'
       );
 
-    console.log(
-      '✅ Embedding model loaded'
-    );
+    console.log('AI models loaded');
   }
 
   return embedder;
@@ -1190,10 +1183,7 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
         userMessage
       );
 
-    console.log(
-      '🧠 Intent:',
-      intent
-    );
+    
 
     if (intent === 'task') {
 
@@ -2831,10 +2821,7 @@ ${combinedText}
               new Date().toISOString()
           };
 
-          console.log(
-            '✅ Creating Task:',
-            task.title
-          );
+          
 
           if (
             !existingTitles.has(
