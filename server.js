@@ -8,6 +8,7 @@
 
 require('dotenv').config();
 
+const connectDB = require('./db');
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
@@ -2463,9 +2464,23 @@ app.put(
 // ─────────────────────────────────────────────
 // START SERVER
 // ─────────────────────────────────────────────
-const PORT = 5000;
-app.listen(PORT, () => {
-  console.log(`\n🚀 RAG Agentic AI Chatbot running at http://localhost:${PORT}`);
-  console.log(`📊 Memory stats: ${JSON.stringify(agent.memory.getStats())}`);
-  console.log(`\nMake sure GROQ_API_KEY is set in your .env file\n`);
-});
+const PORT =
+  process.env.PORT || 5000;
+
+async function startServer() {
+
+  await connectDB();
+
+  app.listen(
+    PORT,
+    () => {
+
+      console.log(
+        `🚀 RAG Agentic AI Chatbot running at http://localhost:${PORT}`
+      );
+
+    }
+  );
+}
+
+startServer();
