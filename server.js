@@ -8,7 +8,14 @@
 
 require('dotenv').config();
 
+console.log(
+  'Groq Key Prefix:',
+  process.env.GROQ_API_KEY?.substring(0, 15)
+);
+
 const connectDB = require('./db');
+const initQdrant =
+  require('./qdrant-init');
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
@@ -22,7 +29,12 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 // Suppress noisy pdf.js font warnings
 process.env.PDFJS_DISABLE_WARNINGS = 'true';
-const PDFRepository = require('./db/PDFRepository');
+const MongoDocumentRepository =
+  require('./db/MongoDocumentRepository');
+const qdrantService =
+  require('./services/QdrantService');
+const documentContextService =
+  require('./services/DocumentContextService');
 const TaskRepository = require('./db/TaskRepository');
 
 
@@ -34,14 +46,24 @@ const {
   KnowledgeRepository,
   FeedbackRepository,
 } = require('./db/repositories');
-const UserRepository =
+const MongoUserRepository =
   require('./db/MongoUserRepository');
 
 
 const app = express();
-const userRepo = new UserRepository();
-const pdfRepo =
-  new PDFRepository();
+const userRepo = new MongoUserRepository();
+const mongoPdfRepo =
+  new MongoDocumentRepository();
+const DocumentService =
+  require(
+    './services/DocumentService'
+  );
+
+const documentService =
+  new DocumentService(
+    mongoPdfRepo
+  );
+
 const taskRepo =
   new TaskRepository();
 app.use(cors());
@@ -86,6 +108,18 @@ const groq = new Groq({
 });
 
 const MODEL = 'llama-3.3-70b-versatile';
+
+
+const IntentRouter =
+  require(
+    './services/IntentRouter'
+  );
+
+const intentRouter =
+  new IntentRouter(
+    groq,
+    MODEL
+  );
 
 // ─────────────────────────────
 // EMBEDDING MODEL
@@ -540,36 +574,24 @@ function classifyQuery(
   
 
   // PDF / study / document questions
+  // PDF metadata queries
   if (
-
-    /\b(pdf|document|paper|summary|notes|study|chapter)\b/i
-      .test(q)
-
+    /\b(list|show|name|count|total|uploaded)\b/i.test(q)
+    &&
+    /\b(pdf|pdfs|document|documents|paper|papers)\b/i.test(q)
   ) {
+    return 'pdf_metadata';
+  }
 
+  // PDF content queries
+  if (
+    /\b(pdf|document|paper|summary|summarize|overview|contribution|notes|study|chapter)\b/i
+      .test(q)
+  ) {
     return 'rag';
   }
 
   // Detect uploaded document names
-  const documents =
-    pdfRepo.getUserDocuments(
-      userId
-    );
-
-  for (const doc of documents) {
-
-    const filename =
-      doc.filename
-        .toLowerCase()
-        .replace('.pdf', '');
-
-    if (
-      q.includes(filename)
-    ) {
-
-      return 'rag';
-    }
-  }
   if (
 
     /\b(today|latest|current|news|weather|price|stock|bitcoin|gold)\b/i
@@ -582,12 +604,9 @@ function classifyQuery(
 
   // Task related
   if (
-
-    /\b(task|deadline|plan|schedule|remind)\b/i
+    /\b(task|tasks|deadline|deadlines|plan|plans|schedule|schedules|remind|reminder)\b/i
       .test(q)
-
   ) {
-
     return 'task';
   }
 
@@ -601,8 +620,49 @@ function classifyQuery(
 
     return 'memory';
   }
+  if (
+    /\b(it|this paper|this pdf|this document|that paper|that pdf|that document)\b/i
+      .test(q)
+  ) {
+    return 'rag';
+  }
 
   return 'general';
+}
+
+async function determineIntent(
+  userId,
+  userMessage
+) {
+
+  const ruleIntent =
+    classifyQuery(
+      userId,
+      userMessage
+    );
+
+  if (
+    ruleIntent !==
+    'general'
+  ) {
+
+    return ruleIntent;
+  }
+
+  const llmResult =
+    await intentRouter.classify(
+      userMessage
+    );
+
+  console.log(
+    '🤖 LLM Router:',
+    llmResult
+  );
+
+  return (
+    llmResult.intent ||
+    'general'
+  );
 }
 
 
@@ -619,17 +679,83 @@ class RAGAgent {
     this.model = groq;
   }
 
+  async resolveContext(
+    userId,
+    query
+  ) {
+
+    const context =
+      await documentContextService
+        .getContext(userId);
+
+    if (!context)
+      return query;
+
+    const q =
+      query.trim().toLowerCase();
+
+    // PDF collection references
+
+    if (
+
+      (
+        q === 'name them' ||
+
+        q === 'list them' ||
+
+        q === 'show them' ||
+
+        q === 'show all' ||
+
+        q === 'list all'
+      )
+
+      &&
+
+      context.currentTopic ===
+      'pdf_collection'
+
+    ) {
+
+      return 'list all uploaded pdfs';
+    }
+
+    // Document references
+
+    if (
+
+      /\b(it|its|this paper|that paper|this pdf|that pdf)\b/i
+        .test(q)
+
+      &&
+
+      context.currentEntity
+
+    ) {
+
+      return query.replace(
+
+        /\b(it|its|this paper|that paper|this pdf|that pdf)\b/gi,
+
+        context.currentEntity
+
+      );
+    }
+
+    return query;
+  }
+
   // ─────────────────────────────
   // DETECT TARGET PDF
   // ─────────────────────────────
 
-  detectTargetDocument(
+  async detectTargetDocument(
     userId,
     query
   ) {
 
     const documents =
-      pdfRepo.getUserDocuments(
+      await documentService.getAllDocuments(
         userId
       );
 
@@ -667,9 +793,18 @@ class RAGAgent {
             )
         );
 
+      if (!sortedDocs.length)
+          return null;
+
       console.log(
         '🎯 Target PDF:',
         sortedDocs[0]?.filename
+        );
+
+      await documentContextService
+        .setCurrentDocument(
+          userId,
+          sortedDocs[0].filename
         );
 
       return sortedDocs[0];
@@ -693,7 +828,53 @@ class RAGAgent {
           doc.filename
         );
 
+        await documentContextService
+          .setCurrentDocument(
+            userId,
+            doc.filename
+          );
+
         return doc;
+      }
+    }
+
+    const pronounQuery =
+    /\b(it|its|this paper|this pdf|this document|that paper|that pdf|that document|the paper|the pdf|the document)\b/i;
+
+    if (
+      pronounQuery.test(
+        normalizedQuery
+      )
+    ) {
+
+      const currentDocument =
+        await documentContextService
+          .getCurrentDocument(
+            userId
+        );
+      console.log(
+        '📄 Current Document:',
+        currentDocument
+          );
+
+      if (currentDocument) {
+
+        const match =
+          documents.find(
+            d =>
+              d.filename ===
+              currentDocument
+          );
+
+        if (match) {
+
+          console.log(
+            '🎯 Context PDF:',
+            match.filename
+          );
+
+          return match;
+        }
       }
     }
 
@@ -711,7 +892,6 @@ class RAGAgent {
 
       return targetDocument.summary;
     }
-
     return null;
   }
   async retrieveRelevantPDFChunks(
@@ -721,12 +901,12 @@ class RAGAgent {
   ) {
 
     const documents =
-      pdfRepo.getUserDocuments(
+      await documentService.getAllDocuments(
         userId
       );
     // Detect target document
     const targetDocument =
-      this.detectTargetDocument(
+      await this.detectTargetDocument(
         userId,
         query
       );
@@ -734,98 +914,47 @@ class RAGAgent {
     if (!documents.length)
       return [];
 
-    const allChunks = [];
-
-    const docsToSearch =
-
-      targetDocument
-        ? [targetDocument]
-        : documents;
-
-    docsToSearch.forEach(doc => {
-
-      doc.chunks.forEach(chunk => {
-
-        allChunks.push({
-
-          filename:
-            doc.filename,
-
-          text:
-            chunk.text,
-
-          embedding:
-            chunk.embedding,
-
-          chunkIndex:
-            chunk.chunkIndex,
-
-          relativePosition:
-            chunk.relativePosition
-        });
-      });
-        });
-
-
-    // Otherwise use TF-IDF retrieval
-
-    // ─────────────────────────────
-    // EMBEDDING-BASED RETRIEVAL
-    // ─────────────────────────────
-
     const queryEmbedding =
       await createEmbedding(
         query
       );
 
-    const scoredChunks = [];
-
-    for (const chunk of allChunks) {
-
-      if (!chunk.embedding)
-        continue;
-
-      const embeddingScore =
-        embeddingSimilarity(
-          queryEmbedding,
-          chunk.embedding
-        );
-
-      const keywordScore =
-        keywordSimilarity(
-          query,
-          chunk.text
-        );
-
-      const score =
-        (
-          0.7 * embeddingScore
-        ) +
-        (
-          0.3 * keywordScore
-        );
-
-      scoredChunks.push({
-
-        ...chunk,
-
-        score
-      });
-    }
+    const results =
+      await qdrantService.search(
+        queryEmbedding,
+        topK,
+        targetDocument
+          ? targetDocument.filename
+          : null
+      );
 
     const topChunks =
-      scoredChunks
-        .sort(
-          (a, b) =>
-            b.score - a.score
-        )
-        .slice(0, topK);
+      results.map(result => ({
+
+        filename:
+          result.payload.filename,
+
+        text:
+          result.payload.text,
+
+        chunkIndex:
+          result.payload.chunkIndex,
+
+        relativePosition:
+          result.payload.relativePosition,
+
+        score:
+          result.score
+      }));
+
+    const filteredChunks =
+      topChunks;
 
     console.log(
       '\n🔍 TOP RETRIEVED CHUNKS'
     );
 
-    topChunks.forEach(
+    filteredChunks.forEach(
       (chunk, index) => {
 
         console.log(
@@ -841,16 +970,12 @@ class RAGAgent {
           'Source:',
           chunk.filename
         );
-
-        console.log(
-          chunk.text
-            .substring(0, 200)
-            .replace(/\n/g, ' ')
-        );
       }
     );
 
-    return topChunks;
+    return filteredChunks;
+
+    
   }
 
   async buildSystemPrompt(
@@ -862,7 +987,7 @@ class RAGAgent {
 
     // Detect target PDF
     const targetDocument =
-      this.detectTargetDocument(
+      await this.detectTargetDocument(
         userId,
         query
       );
@@ -928,7 +1053,8 @@ class RAGAgent {
     }
 
     const summaryQuery =
-      /summary|summarize|overview|contribution|main contribution|what is this paper about/i;
+    /summary|summarize|summarise|summawize|overview|contribution|main contribution|what is this paper about|describe|explain/i;
+    
 
     if (
       summaryQuery.test(query) &&
@@ -941,10 +1067,38 @@ class RAGAgent {
 ${documentSummary}
 
 IMPORTANT:
-For summary, overview, contribution,
-and paper-description questions,
-use the DOCUMENT SUMMARY as the primary source.
+
+You MUST answer summary, overview,
+contribution, novelty, motivation,
+and paper-description questions
+using DOCUMENT SUMMARY ONLY.
+
+Ignore PDF chunks when DOCUMENT SUMMARY
+is available.
+
+If DOCUMENT SUMMARY exists,
+treat it as the authoritative source.
 `;
+
+      contextBlock += `
+
+CRITICAL INSTRUCTION:
+
+For requests such as:
+
+- summarize it
+- summary
+- overview
+- explain this paper
+- contribution
+- novelty
+
+You MUST answer using DOCUMENT SUMMARY.
+
+Do NOT summarize individual PDF chunks when DOCUMENT SUMMARY is available.
+`;
+
+
     }
     if (pdfChunks.length > 0) {
 
@@ -1019,8 +1173,19 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
   async chat(userId, sessionId, userMessage) {
 
+
+    userMessage =
+      await this.resolveContext(
+        userId,
+        userMessage
+      );
+
+
+    this.currentSessionId =
+      sessionId;
+
     const intent =
-      classifyQuery(
+      await determineIntent(
         userId,
         userMessage
       );
@@ -1029,6 +1194,97 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
       '🧠 Intent:',
       intent
     );
+
+    if (intent === 'task') {
+
+      const tasks =
+        taskRepo.getUserTasks(
+          userId
+        );
+
+      if (!tasks.length) {
+
+        return {
+          response:
+            '📋 No tasks found.',
+          sources: []
+        };
+      }
+
+      const taskList =
+        tasks.map((t, i) => {
+
+          const deadline =
+            t.deadline
+              ? new Date(t.deadline)
+                .toLocaleDateString()
+              : 'N/A';
+
+          return `
+${i + 1}. ${t.title}
+   📅 Deadline: ${deadline}
+   ${t.completed ? '✅ Completed' : '⏳ Pending'}
+`;
+        }).join('\n');
+
+      const response =
+        `📋 Your Tasks:\n\n${taskList}`;
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
+
+      return {
+        response,
+        sources: []
+      };
+    }
+
+    if (
+      intent === 'pdf_metadata'
+    ) {
+
+      const documents =
+        await documentService.getAllDocuments(
+          userId
+        );
+
+      if (!documents.length) {
+
+        return {
+          response:
+            'No PDFs uploaded.',
+          sources: []
+        };
+      }
+
+      const names =
+        documents.map(
+          (d, i) =>
+            `${i + 1}. ${d.filename}`
+        ).join('\n');
+
+      const response =
+        `📚 You have uploaded ${documents.length} PDFs:\n\n${names}`;
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
+
+      return {
+
+        response,
+
+        sources:
+          documents.map(
+            d => d.filename
+          )
+      };
+    }
 
     // ─────────────────────────────
     // FAST SMALL-TALK RESPONSES
@@ -1160,28 +1416,27 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
         .toLowerCase();
 
     if (
-
-      normalizedQuery ===
-      'how many pdfs' ||
-
-      normalizedQuery ===
-      'how many pdf' ||
-
-      normalizedQuery ===
-      'how many documents' ||
-
-      normalizedQuery ===
-      'uploaded pdf'
-
+      /\bhow many\b.*\b(pdf|pdfs|documents|papers)\b/i.test(
+        normalizedQuery
+      )
         ){
 
-      const documents =
-        pdfRepo.getUserDocuments(
+      const count =
+        await documentService.getDocumentCount(
           userId
+          );
+      
+      await documentContextService.updateContext(
+        userId,
+        {
+          currentTopic: 'pdf_collection',
+          currentEntity: 'documents',
+          lastIntent: 'pdf_metadata'
+        }
         );
 
       const response =
-        `📚 You have uploaded ${documents.length} PDF documents.`;
+        `📚 You have uploaded ${count} PDF documents.`;
 
       this.sessions.addMessage(
         sessionId,
@@ -1219,10 +1474,12 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
       normalizedQuery.includes('name of the last pdf')
     ) {
 
-      const documents =
-        pdfRepo.getUserDocuments(userId);
+      const latest =
+        await documentService.getLatestDocument(
+          userId
+        );
 
-      if (!documents.length) {
+      if (!latest) {
 
         return {
           response: 'No PDFs uploaded.',
@@ -1230,16 +1487,32 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
         };
       }
 
-      const latest =
-        [...documents].sort(
-          (a, b) =>
-            new Date(b.uploadedAt) -
-            new Date(a.uploadedAt)
-        )[0];
+      
+      await documentContextService
+        .setCurrentDocument(
+          userId,
+          latest.filename
+        );
+      await documentContextService.updateContext(
+        userId,
+        {
+          currentTopic: 'pdf_document',
+          currentEntity: latest.filename,
+          lastIntent: 'pdf_metadata'
+        }
+        );
+
+      const response =
+        `📄 Latest PDF: ${latest.filename}`;
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
 
       return {
-        response:
-          `📄 Latest PDF: ${latest.filename}`,
+        response,
         sources: [latest.filename]
       };
     }
@@ -1249,32 +1522,86 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
     // ─────────────────────────────
 
     let pdfSources = [];
-let pdfChunks = [];
+    let pdfChunks = [];
 
-const summaryQuery =
-  /summary|summarize|overview|contribution|main contribution|what is this paper about/i;
 
-if (
-  intent === 'rag' &&
-  !summaryQuery.test(userMessage)
-) {
 
-  pdfChunks =
-    await this.retrieveRelevantPDFChunks(
-      userId,
-      userMessage,
-      5
-    );
+    const summaryQuery =
+      /summary|summarize|summarise|summawize|overview|contribution|main contribution|what is this paper about|describe|explain/i;
 
-  pdfSources =
-    [
-      ...new Set(
-        pdfChunks.map(
-          c => c.filename
-        )
-      )
-    ];
-}
+
+    // ADD THIS BLOCK HERE ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+
+    const targetDocument =
+      await this.detectTargetDocument(
+        userId,
+        userMessage
+      );
+
+    if (
+      summaryQuery.test(userMessage) &&
+      targetDocument &&
+      targetDocument.summary
+    ) {
+
+      console.log(
+        '📄 Returning stored document summary'
+      );
+
+      const response =
+        targetDocument.summary;
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
+
+      return {
+
+        response,
+
+        memoryUsed: false,
+
+        knowledgeUsed: false,
+
+        sources: [
+          targetDocument.filename
+        ],
+
+        memoryStats:
+          this.memory.getStats()
+      };
+    }
+
+    
+
+ 
+
+    
+
+    if (
+      intent === 'rag' &&
+      !summaryQuery.test(userMessage)
+    ) {
+
+      pdfChunks =
+        await this.retrieveRelevantPDFChunks(
+          userId,
+          userMessage,
+          5
+        );
+
+      pdfSources =
+        [
+          ...new Set(
+            pdfChunks.map(
+              c => c.filename
+            )
+          )
+        ];
+      
+  } 
 
 
 console.log(
@@ -1295,7 +1622,7 @@ console.log(
 
     let webContext = '';
 
-    if (needsWebSearch(userMessage)) {
+    if (intent === 'web') { 
 
         try {
 
@@ -1322,24 +1649,17 @@ console.log(
           // SMART WEB SEARCH
           // ─────────────────────────────
 
-          const needsRealtimeSearch =
+          const searchResults =
+            await tavilyClient.search(
+              searchQuery,
+              {
+                maxResults: 5
+              }
+            );
 
-            /\b(today|latest|current|now|live)\b/i
-              .test(userMessage);
+          webContext = `
 
-          if (needsRealtimeSearch) {
-
-            const searchResults =
-              await tavilyClient.search(
-                searchQuery,
-                {
-                  maxResults: 5
-                }
-              );
-
-            webContext = `
-
-### REALTIME INTERNET SEARCH RESULTS:
+### INTERNET SEARCH RESULTS
 
 ${JSON.stringify(searchResults)}
 
@@ -1347,13 +1667,6 @@ Use these search results as factual grounding.
 
 Do not hallucinate beyond these results.
 `;
-
-          } else {
-
-            webContext = `
-Use your own built-in knowledge.
-`;
-          }
 
         } catch (err) {
 
@@ -1925,6 +2238,37 @@ app.post(
           await createEmbedding(
             chunk.text
           );
+
+        if (!chunk.text?.trim())
+          continue;
+
+        await qdrantService.storeChunk({
+
+          id:
+            Date.now() +
+            chunk.chunkIndex,
+
+          vector:
+            chunk.embedding,
+
+          payload: {
+
+            userId:
+              req.user.userId,
+
+            filename:
+              req.file.originalname,
+
+            text:
+              chunk.text,
+
+            chunkIndex:
+              chunk.chunkIndex,
+
+            relativePosition:
+              chunk.relativePosition
+          }
+        });
       }
 
       console.log(
@@ -1945,7 +2289,9 @@ app.post(
         );
 
         const summaryPrompt = `
-Analyze this PDF and identify its document type.
+Analyze the following document.
+
+First determine the document type.
 
 Possible types:
 - Research Paper
@@ -1953,13 +2299,54 @@ Possible types:
 - Resume
 - Notes
 - Report
+- Book Chapter
+- Thesis
 - Other
 
-Then provide a concise summary appropriate for that document type.
+Then generate a structured summary.
 
-Content:
+FORMAT EXACTLY:
 
-${fullText.substring(0, 4000)}
+# Document Type
+
+<type>
+
+# Main Topic
+
+<1-2 sentences>
+
+# Key Contributions
+
+- contribution 1
+- contribution 2
+- contribution 3
+
+# Methodology / Approach
+
+<explanation>
+
+# Important Findings
+
+- finding 1
+- finding 2
+- finding 3
+
+# Applications
+
+- application 1
+- application 2
+
+# Limitations
+
+- limitation 1
+- limitation 2
+
+# Executive Summary
+
+<5-10 sentence high-quality summary>
+
+DOCUMENT:
+${fullText.substring(0, 8000)}
 `;
 
         const summaryResult =
@@ -2030,7 +2417,34 @@ ${fullText.substring(0, 4000)}
         chunks
       };
 
-      pdfRepo.addDocument(document);
+      
+      await documentService.addDocument({
+
+        userId:
+          document.userId,
+
+        filename:
+          document.filename,
+
+        summary:
+          document.summary,
+
+        path:
+          document.path,
+
+        uploadedAt:
+          document.uploadedAt
+      });
+      await documentContextService
+        .setCurrentDocument(
+          req.user.userId,
+          req.file.originalname
+        );
+
+      console.log(
+        '📄 Current document set:',
+        req.file.originalname
+      );
 
       res.json({
 
@@ -2073,10 +2487,11 @@ app.post(
 
       const userId =
         req.user.userId;
+      
 
       // Get all user PDFs
       const documents =
-        pdfRepo.getUserDocuments(
+        await documentService.getAllDocuments(
           userId
         );
 
@@ -2097,10 +2512,7 @@ app.post(
           `\n\nDOCUMENT: ${doc.filename}\n`;
 
         combinedText +=
-          doc.chunks
-            .slice(0, 8)
-            .map(c => c.text)
-            .join('\n');
+          doc.summary || '';
       });
 
       // Limit size
@@ -2112,22 +2524,51 @@ app.post(
 
       // AI Prompt
       const prompt = `
-Generate high-quality structured study notes from the following academic content.
+      You are an expert research assistant.
 
-FORMAT:
+      Generate university-level study notes from the provided documents.
 
-# Title
+      FORMAT EXACTLY:
 
-## Key Concepts
-- bullet points
+      # Master Notes
 
-## Important Explanations
+      ## Core Concepts
 
-## Key Takeaways
+      Explain all major concepts.
 
-## Possible Exam Questions
+      ## Key Models / Architectures
 
-CONTENT:
+      Describe important architectures and methodologies.
+
+      ## Important Contributions
+
+      List major contributions from each paper.
+
+      ## Comparative Analysis
+
+      Compare similarities and differences between the papers.
+
+      ## Important Technical Terms
+
+      Define key terminology.
+
+      ## Strengths and Limitations
+
+      Discuss strengths and weaknesses.
+
+      ## Exam-Oriented Notes
+
+      Provide concise revision notes.
+
+      ## Possible Viva Questions
+
+      Generate 10 technical viva/interview questions.
+
+      ## Possible Exam Questions
+
+      Generate 10 descriptive exam questions.
+
+      DOCUMENTS:
 ${combinedText}
 `;
 
@@ -2179,6 +2620,9 @@ ${combinedText}
   }
 );
 
+
+
+
 // ─────────────────────────────────────────────
 // STUDY PLANNER GENERATION
 // ─────────────────────────────────────────────
@@ -2195,9 +2639,21 @@ app.post(
       const userId =
         req.user.userId;
 
+      const existingTasks =
+        taskRepo.getUserTasks(
+          req.user.userId
+        );
+
+      const existingTitles =
+        new Set(
+          existingTasks.map(
+            t => t.title.trim()
+          )
+        );
+
       // Get uploaded PDFs
       const documents =
-        pdfRepo.getUserDocuments(
+        await documentService.getAllDocuments(
           userId
         );
 
@@ -2218,10 +2674,7 @@ app.post(
           `\n\nDOCUMENT: ${doc.filename}\n`;
 
         combinedText +=
-          doc.chunks
-            .slice(0, 8)
-            .map(c => c.text)
-            .join('\n');
+          doc.summary || '';
       });
 
       // Limit size
@@ -2233,27 +2686,69 @@ app.post(
 
       // Planner prompt
       const prompt = `
-Generate a structured 7-day study plan from the following academic material.
+      You are an expert academic mentor.
 
-FORMAT:
+      Generate a structured 7-day study roadmap from the provided research papers.
 
-# 7-Day Study Plan
+      FORMAT EXACTLY:
 
-## Day 1
-- Topics
-- Estimated study time
-- Revision tasks
+      # 7-Day Research Study Plan
 
-## Day 2
-...
+      ## Day 1 - Foundations
+      Topics:
+      Objectives:
+      Revision Tasks:
+      Estimated Time:
 
-Include:
-- priorities
-- revision strategy
-- difficulty progression
-- exam preparation tips
+      ## Day 2 - Core Methodologies
+      Topics:
+      Objectives:
+      Revision Tasks:
+      Estimated Time:
 
-CONTENT:
+      ## Day 3 - Architectures
+      Topics:
+      Objectives:
+      Revision Tasks:
+      Estimated Time:
+
+      ## Day 4 - Advanced Concepts
+      Topics:
+      Objectives:
+      Revision Tasks:
+      Estimated Time:
+
+      ## Day 5 - Comparative Analysis
+      Topics:
+      Objectives:
+      Revision Tasks:
+      Estimated Time:
+
+      ## Day 6 - Research Insights
+      Topics:
+      Objectives:
+      Revision Tasks:
+      Estimated Time:
+
+      ## Day 7 - Final Revision & Viva Preparation
+      Topics:
+      Objectives:
+      Revision Tasks:
+      Estimated Time:
+
+      Also include:
+
+      # Learning Path
+
+      # Important Papers To Read First
+
+      # Research Gaps
+
+      # Potential Thesis Directions
+
+      # Viva Questions
+
+      DOCUMENTS:
 ${combinedText}
 `;
 
@@ -2301,9 +2796,9 @@ ${combinedText}
 
           clean.startsWith('-') ||
 
-          clean.match(/^day\s+\d+/i)
+          clean.match(/^##\s*day\s+\d+/i)
 
-        ) {
+          ) {
 
           const task = {
 
@@ -2315,10 +2810,16 @@ ${combinedText}
               req.user.userId,
 
             title:
-              clean.replace(/^-\s*/, ''),
+              clean
+                .replace(/^##\s*/, '')
+                .replace(/^-\s*/, ''),
 
             deadline:
-              null,
+              new Date(
+                Date.now() +
+                createdTasks.length *
+                24 * 60 * 60 * 1000
+              ).toISOString(),
 
             priority:
               'medium',
@@ -2330,9 +2831,26 @@ ${combinedText}
               new Date().toISOString()
           };
 
-          taskRepo.addTask(task);
+          console.log(
+            '✅ Creating Task:',
+            task.title
+          );
 
-          createdTasks.push(task);
+          if (
+            !existingTitles.has(
+              task.title.trim()
+            )
+          ) {
+
+            taskRepo.addTask(task);
+
+            createdTasks.push(task);
+
+            existingTitles.add(
+              task.title.trim()
+            );
+          }
+          
         }
           }
 
@@ -2505,6 +3023,8 @@ async function startServer() {
 
   await connectDB();
 
+  await initQdrant();
+
   app.listen(
     PORT,
     () => {
@@ -2515,6 +3035,6 @@ async function startServer() {
 
     }
   );
-}
+  }
 
 startServer();

@@ -1,189 +1,325 @@
-# 🚀 RAG Agentic AI Chatbot — Infinite Memory Edition
+# AI Research Assistant Chatbot
 
-> Built on top of [musix-amrita1611/ai-chatbot-assistant](https://github.com/musix-amrita1611/ai-chatbot-assistant)  
-> Powered by Google Gemini AI · Space-themed UI · RAG + Infinite Memory + Self-Learning
-
----
-
-## ✨ Features Added
-
-| Feature | Description |
-|---|---|
-| 🧠 **Infinite Memory** | Remembers everything across ALL sessions, forever (stored in `data/memory.json`) |
-| 📚 **RAG Engine** | TF-IDF vector retrieval — answers are grounded in stored context, not hallucinated |
-| 🤖 **Agentic Reasoning** | Retrieves relevant memories before answering each question |
-| 🎓 **Self-Learning** | Use the "Teach the AI" panel to correct wrong answers — it learns permanently |
-| 🚫 **Anti-Hallucination** | Strict system prompt forces the AI to cite uncertainty and never invent facts |
-| 💾 **Persistent Sessions** | All conversations saved to disk, resumable anytime |
-| ⚡ **Fact Extraction** | Automatically extracts and stores facts from your messages ("My name is...", "I work at...") |
+An Agentic AI Research Assistant that supports PDF-based Retrieval-Augmented Generation (RAG), document summarization, study note generation, research planning, memory, and semantic search using MongoDB and Qdrant.
 
 ---
 
-## 📁 File Structure
+# Features
 
-```
-ai-chatbot-assistant/
-├── server.js          ← Main server (RAG engine, memory, knowledge base)
-├── index.html         ← Space-themed UI (original layout preserved)
-├── style.css          ← All styles (original + RAG UI)
-├── script.js          ← Frontend logic (session mgmt, chat, feedback)
-├── package.json       ← Dependencies
-├── .env.example       ← Environment variable template
-└── data/              ← Auto-created on first run
-    ├── memory.json    ← All conversation memories (infinite)
-    ├── sessions.json  ← Session history
-    ├── knowledge.json ← Self-learned knowledge base
-    └── feedback.json  ← User corrections log
+## User Management
+
+* User Registration
+* User Login
+* Secure Password Hashing
+* MongoDB User Storage
+
+---
+
+## PDF Management
+
+* Upload PDF Documents
+* Automatic Text Extraction
+* Chunk Generation
+* Embedding Generation
+* Semantic Search
+* Latest PDF Detection
+* PDF Collection Management
+
+---
+
+## Research Assistance
+
+* Structured PDF Summaries
+* Key Contributions Extraction
+* Methodology Extraction
+* Applications Extraction
+* Limitations Extraction
+* Research-Oriented Notes Generation
+* 7-Day Research Study Planner
+* Viva Question Generation
+* Exam Question Generation
+
+---
+
+## RAG (Retrieval-Augmented Generation)
+
+* Semantic PDF Retrieval
+* Context-Aware Question Answering
+* Multi-Document Search
+* Qdrant Vector Database Integration
+* User-Specific Document Filtering
+
+---
+
+## Conversation Memory
+
+* Current Document Tracking
+* Current Topic Tracking
+* Current Entity Tracking
+* Intent Tracking
+* Follow-Up Question Resolution
+
+Examples:
+
+* What is the latest PDF?
+* Summarize it
+* What is its contribution?
+* How many PDFs do I have?
+* Name them
+
+---
+
+# Technology Stack
+
+## Backend
+
+* Node.js
+* Express.js
+
+## Database
+
+* MongoDB Atlas
+
+Collections:
+
+* users
+* documents
+* sessioncontexts
+
+## Vector Database
+
+* Qdrant
+
+Stores:
+
+* PDF Chunk Embeddings
+* Semantic Search Vectors
+
+## AI Models
+
+### Embeddings
+
+* Xenova Transformers
+
+### LLM
+
+* Groq API
+
+Supported Models:
+
+* Llama
+* Qwen
+* DeepSeek
+* Gemma
+
+---
+
+# Project Structure
+
+```text
+CHATBOT/
+│
+├── db/
+│   ├── MongoDocumentRepository.js
+│   ├── MongoUserRepository.js
+│   ├── TaskRepository.js
+│
+├── models/
+│   ├── Document.js
+│   ├── SessionContext.js
+│   ├── user.js
+│
+├── services/
+│   ├── DocumentService.js
+│   ├── DocumentContextService.js
+│   ├── QdrantService.js
+│
+├── uploads/
+│
+├── server.js
+├── qdrant.js
+├── qdrant-init.js
+├── package.json
+│
+└── README.md
 ```
 
 ---
 
-## 🛠️ Setup — Step by Step
+# Storage Architecture
 
-### Step 1: Clone and enter the project
+## MongoDB
 
-```bash
-git clone https://github.com/musix-amrita1611/ai-chatbot-assistant.git
-cd ai-chatbot-assistant
+### users
+
+Stores:
+
+* User Information
+* Login Credentials
+
+### documents
+
+Stores:
+
+* User ID
+* Filename
+* Summary
+* File Path
+* Upload Date
+
+### sessioncontexts
+
+Stores:
+
+* User ID
+* Current Document
+* Current Topic
+* Current Entity
+* Last Intent
+* Updated Time
+
+---
+
+## Qdrant
+
+Collection:
+
+```text
+pdf_chunks
 ```
 
-### Step 2: Replace all files
+Payload:
 
-Copy over the new `server.js`, `script.js`, `style.css`, `index.html`, and `package.json` from this release into the project folder.
-
-### Step 3: Get a Gemini API Key
-
-1. Go to [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-2. Click **"Create API Key"**
-3. Copy the key
-
-### Step 4: Set your API key
-
-**Option A — Environment variable (recommended):**
-```bash
-# Linux / Mac
-export GEMINI_API_KEY=your_key_here
-
-# Windows CMD
-set GEMINI_API_KEY=your_key_here
-
-# Windows PowerShell
-$env:GEMINI_API_KEY="your_key_here"
+```json
+{
+  "userId": "...",
+  "filename": "...",
+  "text": "..."
+}
 ```
 
-**Option B — Edit server.js directly:**
+Stores semantic embeddings for PDF chunks.
 
-Open `server.js` and replace line:
-```js
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE';
-```
-with:
-```js
-const GEMINI_API_KEY = 'paste_your_key_here';
+---
+
+# Supported Commands
+
+## PDF Commands
+
+```text
+What is the latest PDF?
+Summarize it
+What is its contribution?
+How many PDFs do I have?
+Name them
 ```
 
-### Step 5: Install dependencies
+## Research Commands
+
+```text
+Generate notes
+Generate study plan
+Create viva questions
+Create exam questions
+```
+
+## RAG Commands
+
+```text
+Explain self-attention
+What is Flamingo?
+Compare CLIP and MedCLIP
+Explain Vision Transformer
+```
+
+---
+
+# Setup
+
+## Install Dependencies
 
 ```bash
 npm install
 ```
 
-### Step 6: Start the server
+## Configure Environment Variables
+
+Create:
+
+```text
+.env
+```
+
+Example:
+
+```env
+MONGO_URI=your_mongodb_connection_string
+
+QDRANT_URL=your_qdrant_url
+QDRANT_API_KEY=your_qdrant_api_key
+
+GROQ_API_KEY=your_groq_api_key
+```
+
+---
+
+# Start Application
 
 ```bash
-npm start
+node server.js
 ```
 
-You'll see:
-```
-🚀 RAG Agentic AI Chatbot running at http://localhost:3000
-📊 Memory stats: {"total":0,"facts":0,"sessions":0}
-```
+Server:
 
-### Step 7: Open the chatbot
-
-Open your browser and go to: **http://localhost:3000**
-
----
-
-## 🎮 How to Use
-
-### Basic Chat
-- Type a message in the input and press **Enter** or click **TRANSMIT**
-- The AI will retrieve relevant memories before answering
-
-### Memory Indicators
-- 🧠 **MEM** badge = answer used long-term memory from past sessions
-- 📚 **RAG** badge = answer used the learned knowledge base
-
-### Self-Learning (Teach the AI)
-In the sidebar at the bottom:
-1. Enter the wrong question/topic in the first field
-2. Enter the correct answer in the second field
-3. Click **SUBMIT CORRECTION**
-
-The AI permanently stores this and uses it in future responses.
-
-### Multiple Sessions
-- Click **✚ NEW MISSION** to start a fresh conversation
-- Previous sessions appear in the sidebar — click any to resume
-- All sessions share the same memory pool
-
----
-
-## 🔌 API Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/session` | Create new session |
-| GET | `/api/sessions` | List all sessions |
-| GET | `/api/session/:id` | Get session with messages |
-| POST | `/api/chat` | Send a message |
-| POST | `/api/feedback` | Submit a correction (self-learning) |
-| GET | `/api/memory/stats` | Memory statistics |
-| POST | `/api/memory/search` | Search memories by query |
-| POST | `/api/knowledge/upload` | Bulk-upload knowledge entries |
-
-### Example: Inject custom knowledge
-```bash
-curl -X POST http://localhost:3000/api/knowledge/upload \
-  -H "Content-Type: application/json" \
-  -d '{
-    "entries": [
-      {"question": "What is our product?", "answer": "AcmeCorp sells AI-powered widgets."},
-      {"question": "Support email?", "answer": "support@acmecorp.com"}
-    ]
-  }'
+```text
+http://localhost:5000
 ```
 
 ---
 
-## 🔧 Development Mode (auto-restart)
+# Completed Migrations
 
-```bash
-npm run dev
-```
+## MongoDB Migration
 
-Requires `nodemon` (installed automatically via `npm install`).
+Completed
+
+* Users moved from JSON to MongoDB
+* Documents moved from JSON to MongoDB
+* Session Context moved to MongoDB
+
+## Qdrant Migration
+
+Completed
+
+* Embeddings moved to Qdrant
+* Semantic Search moved to Qdrant
+
+## Service Layer Refactor
+
+Completed
+
+* DocumentService
+* DocumentContextService
+* QdrantService
 
 ---
 
-## 🧹 Reset Memory
+# Future Enhancements
 
-To wipe all memory and start fresh:
-```bash
-rm -rf data/
-```
-
-The `data/` folder is recreated automatically on next start.
+* Multi-PDF Comparative Analysis
+* Citation Extraction
+* Research Gap Detection
+* Thesis Topic Recommendation
+* Paper Recommendation Engine
+* Agentic Research Workflow
+* Medical VLM Research Assistant
 
 ---
 
-## 📦 Dependencies
+# Author
 
-- `@google/generative-ai` — Gemini AI SDK
-- `express` — Web server
-- `fs-extra` — File system helpers
-- `uuid` — Unique IDs
-- `natural` — NLP utilities
-- `cors` + `body-parser` — API middleware
+Sougata Roy
+
+M.Tech (Computer Science)
+
+AI Research | Computer Vision | Vision Language Models | Deep Learning
