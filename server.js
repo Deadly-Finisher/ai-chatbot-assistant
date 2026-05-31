@@ -71,13 +71,28 @@ app.use(express.static('.'));
 // FILE UPLOAD CONFIG
 // ─────────────────────────────────────────────
 
+const uploadsDir =
+  path.join(__dirname, 'uploads');
+
+if (!fs.existsSync(uploadsDir)) {
+
+  fs.mkdirSync(
+    uploadsDir,
+    { recursive: true }
+  );
+
+  console.log(
+    '✅ uploads directory created'
+  );
+}
+
 const storage =
   multer.diskStorage({
 
     destination:
       function (req, file, cb) {
 
-        cb(null, 'uploads/');
+        cb(null, uploadsDir);
       },
 
     filename:
