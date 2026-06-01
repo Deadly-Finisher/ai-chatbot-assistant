@@ -127,6 +127,12 @@ const IntentRouter =
     './services/IntentRouter'
   );
 
+const PlannerAgent =
+  require('./services/PlannerAgent');
+
+const ContextAgent =
+  require('./services/ContextAgent');
+
 const intentRouter =
   new IntentRouter(
     groq,
@@ -535,144 +541,6 @@ function isSmallTalk(query) {
   );
 }
 
-// ─────────────────────────────────────────────
-// WEB SEARCH DETECTION
-// ─────────────────────────────────────────────
-
-function needsWebSearch(query) {
-
-  const realtimePatterns = [
-    /latest/i,
-    /today/i,
-    /news/i,
-    /weather/i,
-    /price/i,
-    /stock/i,
-    /live/i,
-    /score/i
-  ];
-
-  return realtimePatterns.some(
-    pattern =>
-      pattern.test(query)
-  );
-}
-
-// ─────────────────────────────
-// QUERY INTENT CLASSIFIER
-// ─────────────────────────────
-
-function classifyQuery(
-  userId,
-  query
-) {
-
-  const q =
-    query
-      .trim()
-      .toLowerCase();
-
-  // Small talk
-  if (isSmallTalk(q)) {
-
-    return 'smalltalk';
-  }
-
-  // Realtime web info
-  
-
-  // PDF / study / document questions
-  // PDF metadata queries
-  if (
-    /\b(list|show|name|count|total|uploaded)\b/i.test(q)
-    &&
-    /\b(pdf|pdfs|document|documents|paper|papers)\b/i.test(q)
-  ) {
-    return 'pdf_metadata';
-  }
-
-  // PDF content queries
-  if (
-    /\b(pdf|document|paper|summary|summarize|overview|contribution|notes|study|chapter)\b/i
-      .test(q)
-  ) {
-    return 'rag';
-  }
-
-  // Detect uploaded document names
-  if (
-
-    /\b(today|latest|current|news|weather|price|stock|bitcoin|gold)\b/i
-      .test(q)
-
-  ) {
-
-    return 'web';
-  }
-
-  // Task related
-  if (
-    /\b(task|tasks|deadline|deadlines|plan|plans|schedule|schedules|remind|reminder)\b/i
-      .test(q)
-  ) {
-    return 'task';
-  }
-
-  // Memory related
-  if (
-
-    /\b(remember|memory|about me)\b/i
-      .test(q)
-
-  ) {
-
-    return 'memory';
-  }
-  if (
-    /\b(it|this paper|this pdf|this document|that paper|that pdf|that document)\b/i
-      .test(q)
-  ) {
-    return 'rag';
-  }
-
-  return 'general';
-}
-
-async function determineIntent(
-  userId,
-  userMessage
-) {
-
-  const ruleIntent =
-    classifyQuery(
-      userId,
-      userMessage
-    );
-
-  if (
-    ruleIntent !==
-    'general'
-  ) {
-
-    return ruleIntent;
-  }
-
-  const llmResult =
-    await intentRouter.classify(
-      userMessage
-    );
-
-  console.log(
-    '🤖 LLM Router:',
-    llmResult
-  );
-
-  return (
-    llmResult.intent ||
-    'general'
-  );
-}
-
 
 // ─────────────────────────────────────────────
 // RAG AGENT
@@ -685,12 +553,29 @@ class RAGAgent {
     this.knowledge = new KnowledgeBase();
     this.sessions = new SessionStore();
     this.model = groq;
+
+    this.planner =
+      new PlannerAgent(
+        groq,
+        MODEL
+      );
+
+    this.contextAgent =
+      new ContextAgent(
+        groq,
+        MODEL
+      );
   }
 
   async resolveContext(
     userId,
     query
   ) {
+
+    console.log(
+      '🧩 resolveContext input:',
+      query
+    );
 
     const context =
       await documentContextService
@@ -730,25 +615,30 @@ class RAGAgent {
 
     // Document references
 
-    if (
+    // if (
 
-      /\b(it|its|this paper|that paper|this pdf|that pdf)\b/i
-        .test(q)
+    //   /\b(it|its|this paper|that paper|this pdf|that pdf)\b/i
+    //     .test(q)
 
-      &&
+    //   &&
 
-      context.currentEntity
+    //   context.currentEntity
 
-    ) {
+    // ) {
 
-      return query.replace(
+    //   console.log(
+    //     '⚠️ Context replacement:',
+    //     context.currentEntity
+    //   );
 
-        /\b(it|its|this paper|that paper|this pdf|that pdf)\b/gi,
+    //   return query.replace(
 
-        context.currentEntity
+    //     /\b(it|its|this paper|that paper|this pdf|that pdf)\b/gi,
 
-      );
-    }
+    //     context.currentEntity
+
+    //   );
+    // }
 
     return query;
   }
@@ -845,50 +735,56 @@ class RAGAgent {
         return doc;
       }
     }
-
-    const pronounQuery =
-    /\b(it|its|this paper|this pdf|this document|that paper|that pdf|that document|the paper|the pdf|the document)\b/i;
-
-    if (
-      pronounQuery.test(
-        normalizedQuery
-      )
-    ) {
-
-      const currentDocument =
-        await documentContextService
-          .getCurrentDocument(
-            userId
-        );
-      console.log(
-        '📄 Current Document:',
-        currentDocument
-          );
-
-      if (currentDocument) {
-
-        const match =
-          documents.find(
-            d =>
-              d.filename ===
-              currentDocument
-          );
-
-        if (match) {
-
-          console.log(
-            '🎯 Context PDF:',
-            match.filename
-          );
-
-          return match;
-        }
-      }
-    }
-
     return null;
   }
 
+    // const pronounQuery =
+    // /\b(it|its|this paper|this pdf|this document|that paper|that pdf|that document|the paper|the pdf|the document)\b/i;
+
+    // if (
+    //   pronounQuery.test(
+    //     normalizedQuery
+    //   )
+    // ) {
+
+    //   const currentDocument =
+    //     await documentContextService
+    //       .getCurrentDocument(
+    //         userId
+    //     );
+    //   console.log(
+    //     '📄 Current Document:',
+    //     currentDocument
+    //       );
+
+    //   if (currentDocument) {
+
+    //     const match =
+    //       documents.find(
+    //         d =>
+    //           d.filename ===
+    //           currentDocument
+    //       );
+
+    //     if (match) {
+
+    //       console.log(
+    //         '🎯 Context PDF:',
+    //         match.filename
+    //       );
+
+    //       console.log(
+    //         '⚠️ Pronoun resolved to PDF:',
+    //         match.filename
+    //       );
+
+  //         return match;
+  //       }
+  //     }
+  //   }
+
+  //   return null;
+  // }
   getDocumentSummary(
     targetDocument
   ) {
@@ -1182,21 +1078,101 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
   async chat(userId, sessionId, userMessage) {
 
 
+    const recentHistory =
+      this.sessions
+        .getRecentMessages(
+          sessionId,
+          6
+        );
+
+    const historyText =
+      recentHistory
+        .map(
+          m =>
+            `${m.role}: ${m.content}`
+        )
+        .join('\n');
+
+    const state = {
+
+      hasDocuments:
+
+        (
+          await documentService
+            .getDocumentCount(
+              userId
+            )
+        ) > 0,
+
+      taskCount:
+
+        taskRepo
+          .getUserTasks(
+            userId
+          )
+          .length
+  };
+
     userMessage =
-      await this.resolveContext(
-        userId,
-        userMessage
+      await this.contextAgent.resolve(
+        userMessage,
+        historyText
       );
+
+    const plan =
+      await this.planner.plan(
+        userMessage,
+        state
+      );
+
+    console.log(
+      "🧠 Planner:",
+      plan
+    );
+
+
+    
+
+    console.log(
+      '🧠 Resolved Query:',
+      userMessage
+    );
 
 
     this.currentSessionId =
       sessionId;
 
-    const intent =
-      await determineIntent(
-        userId,
-        userMessage
-      );
+    const primaryTool =
+      plan.tools?.[0] || 'GENERAL';
+
+    console.log(
+      '🎯 Primary Tool:',
+      primaryTool
+    );
+
+    let intent = 'general';
+
+    switch (primaryTool) {
+
+      case 'WEB_SEARCH':
+        intent = 'web';
+        break;
+
+      case 'PDF_SEARCH':
+        intent = 'rag';
+        break;
+
+      case 'TASKS':
+        intent = 'task';
+        break;
+
+      case 'MEMORY':
+        intent = 'memory';
+        break;
+
+      default:
+        intent = 'general';
+    }
 
     
 
