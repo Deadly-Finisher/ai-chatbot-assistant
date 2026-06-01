@@ -827,3 +827,64 @@ code {
     overflow-x: hidden;
   }
 }
+/* ==========================
+   MOBILE RESPONSIVE
+========================== */
+
+@media screen and (max-width:768px) {
+
+  #sidebar {
+    position: fixed;
+    left: -280px;
+    top: 0;
+    width: 260px;
+    height: 100vh;
+    z-index: 1000;
+    transition: left .3s ease;
+  }
+
+  #sidebar.mobile-open {
+    left: 0;
+  }
+
+  #chat-box {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    padding: 12px;
+    margin: 0;
+  }
+
+  body {
+    font-size: 16px;
+  }
+
+  .msg-content {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  button {
+    font-size: 15px;
+  }
+
+  #user-input {
+    height: 55px;
+    font-size: 16px;
+  }
+
+  #send-btn {
+    height: 55px;
+    font-size: 16px;
+    padding: 0 20px;
+  }
+
+  .solar-system {
+    display: none !important;
+  }
+
+  html,
+  body {
+    overflow-x: hidden;
+  }
+}
