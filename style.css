@@ -768,3 +768,62 @@ code {
 
   opacity: 0.6;
 }
+/* =====================================
+   MOBILE RESPONSIVE FIX
+===================================== */
+
+@media (max-width: 768px) {
+
+  #sidebar {
+    display: none;
+  }
+
+  #chat-box {
+    left: 10px;
+    right: 10px;
+    top: 70px;
+    bottom: 110px;
+    padding: 10px;
+  }
+
+  .message {
+    max-width: 95%;
+  }
+
+  .msg-content {
+    font-size: 12px;
+    padding: 10px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .solar-system {
+    display: none;
+  }
+
+  #ai-status {
+    left: 10px;
+    right: 10px;
+    width: auto;
+    justify-content: space-between;
+  }
+
+  .transmit-area {
+    left: 10px !important;
+    right: 10px !important;
+    bottom: 10px !important;
+  }
+
+  #user-input {
+    font-size: 16px;
+  }
+
+  #send-btn {
+    min-width: 90px;
+  }
+
+  html,
+  body {
+    overflow-x: hidden;
+  }
+}
