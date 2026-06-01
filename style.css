@@ -764,13 +764,49 @@ code {
 
   opacity: 0.6;
 }
+.transmit-area {
+  position: absolute;
+  left: 260px;
+  right: 20px;
+  bottom: 20px;
 
-/* MOBILE RESPONSIVE */
+  display: flex;
+  gap: 10px;
+
+  z-index: 100;
+}
+/* =========================
+   MOBILE RESPONSIVE
+========================= */
+
+#mobile-menu-btn {
+  display: none;
+}
 
 @media screen and (max-width:768px) {
 
+  #mobile-menu-btn {
+    display: block;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 999999;
+    font-size: 24px;
+    padding: 8px 12px;
+  }
+
   #sidebar {
-    display: none !important;
+    position: fixed !important;
+    left: -260px !important;
+    top: 0 !important;
+    width: 250px !important;
+    height: 100vh !important;
+    z-index: 99999 !important;
+    transition: 0.3s;
+  }
+
+  #sidebar.mobile-open {
+    left: 0 !important;
   }
 
   .solar-system {
@@ -779,7 +815,7 @@ code {
 
   #ai-status {
     top: 10px !important;
-    left: 10px !important;
+    left: 60px !important;
     right: 10px !important;
     width: auto !important;
   }
@@ -791,7 +827,7 @@ code {
     left: 10px !important;
     right: 10px !important;
 
-    bottom: 160px !important;
+    bottom: 140px !important;
 
     width: auto !important;
 
@@ -803,7 +839,7 @@ code {
   }
 
   .msg-content {
-    font-size: 14px !important;
+    font-size: 15px !important;
     line-height: 1.6 !important;
   }
 
@@ -817,10 +853,12 @@ code {
     display: flex !important;
     gap: 10px !important;
 
-    z-index: 99999 !important;
+    z-index: 999999 !important;
 
     background: rgba(5, 15, 35, .95);
+
     padding: 10px;
+
     border-radius: 12px;
   }
 
@@ -832,6 +870,7 @@ code {
 
   #send-btn {
     min-width: 90px !important;
+    font-size: 14px !important;
   }
 
   html,
@@ -839,6 +878,3 @@ code {
     overflow-x: hidden !important;
   }
 }
-
-
-
