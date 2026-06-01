@@ -40,10 +40,17 @@ latest fc barcelona squad
 becomes
 → tell me the full FC Barcelona squad
 
-Return ONLY the rewritten query.
+Return ONLY ONE LINE.
 
-If no rewrite is needed,
-return the original query.
+Rules:
+- Do not explain.
+- Do not justify.
+- Do not use arrows (→).
+- Do not use examples.
+- Do not include phrases like "no rewrite needed".
+- Output must contain only the final rewritten query.
+
+If no rewrite is needed, return the original query exactly.
 `;
 
         try {
@@ -63,10 +70,19 @@ return the original query.
                     ]
                 });
 
-            return result
-                .choices[0]
-                .message.content
-                .trim();
+            const resolved =
+                result
+                    .choices[0]
+                    .message.content
+                    .trim();
+
+            const lines =
+                resolved
+                    .split('\n')
+                    .map(line => line.trim())
+                    .filter(Boolean);
+
+            return lines[lines.length - 1];
 
         } catch {
 
