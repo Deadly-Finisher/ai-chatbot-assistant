@@ -48,6 +48,8 @@ const MongoUserRepository =
 
 
 const app = express();
+const uploadProgress =
+  new Map();
 const userRepo = new MongoUserRepository();
 const mongoPdfRepo =
   new MongoDocumentRepository();
@@ -64,7 +66,14 @@ const documentService =
 const taskRepo =
   new TaskRepository();
 app.use(cors());
-app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.json({
+  limit: '100mb'
+}));
+
+app.use(express.urlencoded({
+  extended: true,
+  limit: '100mb'
+}));
 app.use(express.static('.'));
 
 // ─────────────────────────────────────────────
@@ -107,8 +116,18 @@ const storage =
       }
   });
 
-const upload =
-  multer({ storage });
+const upload = multer({
+
+  storage,
+
+  limits: {
+
+    fileSize:
+      100 * 1024 * 1024
+
+  }
+
+});
 
 // ─────────────────────────────────────────────
 // CONFIG
@@ -127,8 +146,20 @@ const IntentRouter =
     './services/IntentRouter'
   );
 
+const DocumentAgent =
+  require('./services/DocumentAgent');
+
+const ConversationAgent =
+  require('./services/ConversationAgent');
+
+const PDFAgent =
+  require('./services/PDFAgent');
+
 const PlannerAgent =
   require('./services/PlannerAgent');
+
+const DocumentSelectionAgent =
+  require('./services/DocumentSelectionAgent');
 
 const ContextAgent =
   require('./services/ContextAgent');
@@ -510,36 +541,7 @@ class SessionStore {
 }
 
 
-// ─────────────────────────────────────────────
-// RAG AGENT
-// ─────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-// SMALL TALK DETECTION
-// ─────────────────────────────────────────────
-
-function isSmallTalk(query) {
-
-  const smallTalkPatterns = [
-    /^hi$/i,
-    /^hello$/i,
-    /^hey$/i,
-    /^yo$/i,
-    /^good morning$/i,
-    /^good evening$/i,
-    /^how are you$/i,
-    /^thanks?$/i,
-    /^ok$/i,
-    /^okay$/i
-  ];
-
-  return smallTalkPatterns.some(
-    pattern =>
-      pattern.test(
-        query.trim()
-      )
-  );
-}
 
 
 // ─────────────────────────────────────────────
@@ -554,8 +556,32 @@ class RAGAgent {
     this.sessions = new SessionStore();
     this.model = groq;
 
+    this.pdfAgent =
+      new PDFAgent(
+        groq,
+        MODEL
+      );
+
     this.planner =
       new PlannerAgent(
+        groq,
+        MODEL
+      );
+
+    this.documentAgent =
+      new DocumentAgent(
+        groq,
+        MODEL
+      );
+
+    this.conversationAgent =
+      new ConversationAgent(
+        groq,
+        MODEL
+      );
+
+    this.documentSelectionAgent =
+      new DocumentSelectionAgent(
         groq,
         MODEL
       );
@@ -589,56 +615,7 @@ class RAGAgent {
 
     // PDF collection references
 
-    if (
-
-      (
-        q === 'name them' ||
-
-        q === 'list them' ||
-
-        q === 'show them' ||
-
-        q === 'show all' ||
-
-        q === 'list all'
-      )
-
-      &&
-
-      context.currentTopic ===
-      'pdf_collection'
-
-    ) {
-
-      return 'list all uploaded pdfs';
-    }
-
-    // Document references
-
-    // if (
-
-    //   /\b(it|its|this paper|that paper|this pdf|that pdf)\b/i
-    //     .test(q)
-
-    //   &&
-
-    //   context.currentEntity
-
-    // ) {
-
-    //   console.log(
-    //     '⚠️ Context replacement:',
-    //     context.currentEntity
-    //   );
-
-    //   return query.replace(
-
-    //     /\b(it|its|this paper|that paper|this pdf|that pdf)\b/gi,
-
-    //     context.currentEntity
-
-    //   );
-    // }
+    
 
     return query;
   }
@@ -657,134 +634,95 @@ class RAGAgent {
         userId
       );
 
-    const normalizedQuery =
-      query.toLowerCase();
+    const currentDocument =
+      await documentContextService
+        .getCurrentDocument(
+          userId
+        );
 
-    // Handle "last uploaded pdf"
+    console.log(
+      '📄 Current Document:',
+      currentDocument
+    );
+
+    
+
+    // 2. Agent document selection
+
+    const selection =
+      await this.documentSelectionAgent
+        .select(
+
+          query,
+
+          documents.map(
+            d => d.filename
+          ),
+
+          currentDocument
+        );
+
+    console.log(
+      '📄 Agent Selected:',
+      selection
+    );
+
     if (
-
-      normalizedQuery.includes(
-        'last uploaded pdf'
-      ) ||
-
-      normalizedQuery.includes(
-        'latest pdf'
-      ) ||
-
-      normalizedQuery.includes(
-        'recent pdf'
-      )
-
+      selection.selectedDocument
     ) {
 
-      const sortedDocs =
-        [...documents].sort(
-
-          (a, b) =>
-
-            new Date(
-              b.uploadedAt
-            ) -
-
-            new Date(
-              a.uploadedAt
-            )
+      const selected =
+        documents.find(
+          d =>
+            d.filename ===
+            selection.selectedDocument
         );
 
-      if (!sortedDocs.length)
-          return null;
-
-      console.log(
-        '🎯 Target PDF:',
-        sortedDocs[0]?.filename
-        );
-
-      await documentContextService
-        .setCurrentDocument(
-          userId,
-          sortedDocs[0].filename
-        );
-
-      return sortedDocs[0];
-      }
-
-    for (const doc of documents) {
-
-      const filename =
-        doc.filename
-          .toLowerCase()
-          .replace('.pdf', '');
-
-      if (
-        normalizedQuery.includes(
-          filename
-        )
-      ) {
+      if (selected) {
 
         console.log(
-          '🎯 Matched PDF:',
-          doc.filename
+          '🎯 Agent PDF Match:',
+          selected.filename
         );
 
         await documentContextService
           .setCurrentDocument(
             userId,
-            doc.filename
+            selected.filename
           );
 
-        return doc;
+        return selected;
+      }
+      
+    }
+
+    // 1. Exact current document match
+    if (currentDocument) {
+
+      const current =
+        documents.find(
+          d =>
+            d.filename ===
+            currentDocument
+        );
+
+      if (current) {
+
+        console.log(
+          '🎯 Using Current Document:',
+          current.filename
+        );
+
+        return current;
       }
     }
+
+
     return null;
   }
 
-    // const pronounQuery =
-    // /\b(it|its|this paper|this pdf|this document|that paper|that pdf|that document|the paper|the pdf|the document)\b/i;
-
-    // if (
-    //   pronounQuery.test(
-    //     normalizedQuery
-    //   )
-    // ) {
-
-    //   const currentDocument =
-    //     await documentContextService
-    //       .getCurrentDocument(
-    //         userId
-    //     );
-    //   console.log(
-    //     '📄 Current Document:',
-    //     currentDocument
-    //       );
-
-    //   if (currentDocument) {
-
-    //     const match =
-    //       documents.find(
-    //         d =>
-    //           d.filename ===
-    //           currentDocument
-    //       );
-
-    //     if (match) {
-
-    //       console.log(
-    //         '🎯 Context PDF:',
-    //         match.filename
-    //       );
-
-    //       console.log(
-    //         '⚠️ Pronoun resolved to PDF:',
-    //         match.filename
-    //       );
-
-  //         return match;
-  //       }
-  //     }
-  //   }
-
-  //   return null;
-  // }
+  
+    
   getDocumentSummary(
     targetDocument
   ) {
@@ -874,6 +812,11 @@ class RAGAgent {
           'Source:',
           chunk.filename
         );
+        console.log(
+          'TEXT:',
+          chunk.text
+            .substring(0, 250)
+        );
       }
     );
 
@@ -956,14 +899,17 @@ class RAGAgent {
       });
     }
 
-    const summaryQuery =
-    /summary|summarize|summarise|summawize|overview|contribution|main contribution|what is this paper about|describe|explain/i;
+    const pdfIntent =
+      await this.pdfAgent.classify(
+        query
+      );
     
 
     if (
-      summaryQuery.test(query) &&
+      pdfIntent.intent ===
+      'paper_summary' &&
       documentSummary
-    ) {
+      ) {
 
       contextBlock += `
 ### DOCUMENT SUMMARY
@@ -1077,7 +1023,6 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
 
   async chat(userId, sessionId, userMessage) {
 
-
     const recentHistory =
       this.sessions
         .getRecentMessages(
@@ -1093,31 +1038,300 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
         )
         .join('\n');
 
+
+    const currentDocument =
+      await documentContextService
+        .getCurrentDocument(
+          userId
+          );
+
+    const allDocs =
+      await documentService
+        .getAllDocuments(
+          userId
+        );
+
     const state = {
 
       hasDocuments:
+        allDocs.length > 0,
 
-        (
-          await documentService
-            .getDocumentCount(
-              userId
-            )
-        ) > 0,
+      currentDocument,
+
+      documentNames:
+        allDocs.map(
+          d => d.filename
+        ),
 
       taskCount:
-
         taskRepo
-          .getUserTasks(
-            userId
-          )
+          .getUserTasks(userId)
           .length
-  };
+      };
+
+    
+
+    console.log(
+      '📄 Current Document:',
+      currentDocument
+          );
 
     userMessage =
       await this.contextAgent.resolve(
         userMessage,
-        historyText
+        historyText,
+        currentDocument
       );
+    
+
+    console.log(
+      '🧠 Resolved Query:',
+      userMessage
+    );
+
+
+    this.currentSessionId =
+      sessionId;
+
+    
+
+    // ─────────────────────────────
+    // FAST SMALL-TALK RESPONSES
+    // ─────────────────────────────
+
+    
+
+    
+    // Store user message in memory
+    this.memory.add({
+      userId,
+      sessionId,
+      role: 'user',
+      text: userMessage
+    });
+
+    this.memory.extractFacts(userId,userMessage, sessionId);
+
+    this.sessions.addMessage(
+      sessionId,
+      'user',
+      userMessage
+    );
+
+    // ─────────────────────────────
+    // FAST PDF METADATA QUERIES
+    // ─────────────────────────────
+
+    const normalizedQuery =
+      userMessage
+        .trim()
+        .toLowerCase();
+    
+    const documentIntent =
+      await this.documentAgent.classify(
+        userMessage
+      );
+
+    const conversationIntent =
+      await this.conversationAgent.classify(
+        userMessage
+      );
+
+    console.log(
+      '💬 Conversation Intent:',
+      conversationIntent
+    );
+
+    console.log(
+      '📄 Document Intent:',
+      documentIntent
+      );
+
+    if (
+      conversationIntent.intent ===
+      'smalltalk'
+    ) {
+
+      const response =
+        conversationIntent.response ||
+        'Hello 👋';
+
+      
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
+
+      return {
+
+        response,
+
+        memoryUsed: false,
+
+        knowledgeUsed: false,
+
+        sources: [],
+
+        memoryStats:
+          this.memory.getStats()
+      };
+      }
+
+    if (
+      documentIntent.intent ===
+      'current_document'
+      &&
+      normalizedQuery.includes('current')
+      ) {
+
+      const currentDocument =
+        await documentContextService
+          .getCurrentDocument(
+            userId
+          );
+
+      return {
+        response:
+          `📄 Current PDF: ${currentDocument}`,
+
+        sources:
+          currentDocument
+            ? [currentDocument]
+            : []
+      };
+    }
+
+    if (
+      documentIntent.intent ===
+      'list_documents'
+    ) {
+
+      const docs =
+        await documentService
+          .getAllDocuments(
+            userId
+          );
+
+      return {
+
+        response:
+          docs
+            .map(d => d.filename)
+            .join('\n'),
+
+        sources:
+          docs.map(
+            d => d.filename
+          )
+      };
+      }
+
+    if (
+      documentIntent.intent ===
+      'latest_document'
+    ) {
+
+      const latest =
+        await documentService
+          .getLatestDocument(
+            userId
+          );
+
+      if (!latest) {
+
+        return {
+          response:
+            'No PDFs uploaded.',
+          sources: []
+        };
+      }
+
+      return {
+
+        response:
+          `📄 Latest PDF: ${latest.filename}`,
+
+        sources:
+          [latest.filename]
+      };
+      }
+
+    if (
+      documentIntent.intent ===
+      'document_count'
+      )
+        {
+
+      const count =
+        await documentService.getDocumentCount(
+          userId
+          );
+      
+      await documentContextService.updateContext(
+        userId,
+        {
+          currentTopic: 'pdf_collection',
+          currentEntity: 'documents',
+          lastIntent: 'pdf_metadata'
+        }
+        );
+
+      const response =
+        `📚 You have uploaded ${count} PDF documents.`;
+
+      this.sessions.addMessage(
+        sessionId,
+        'user',
+        userMessage
+      );
+
+      this.sessions.addMessage(
+        sessionId,
+        'assistant',
+        response
+      );
+
+      return {
+
+        response,
+
+        memoryUsed: false,
+
+        knowledgeUsed: false,
+
+        sources: [],
+
+        memoryStats:
+          this.memory.getStats()
+      };
+      }
+    
+
+    // ─────────────────────────────
+    // TRACK PDF SOURCES
+    // ─────────────────────────────
+
+    let pdfSources = [];
+    let pdfChunks = [];
+
+
+
+    const pdfIntent =
+      await this.pdfAgent.classify(
+        userMessage
+      );
+
+    state.documentIntent =
+      documentIntent.intent;
+
+    state.conversationIntent =
+      conversationIntent.intent;
+
+    state.pdfIntent =
+      pdfIntent.intent;
+
 
     const plan =
       await this.planner.plan(
@@ -1129,18 +1343,6 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
       "🧠 Planner:",
       plan
     );
-
-
-    
-
-    console.log(
-      '🧠 Resolved Query:',
-      userMessage
-    );
-
-
-    this.currentSessionId =
-      sessionId;
 
     const primaryTool =
       plan.tools?.[0] || 'GENERAL';
@@ -1174,7 +1376,29 @@ Memory stats: ${JSON.stringify(this.memory.getStats())}`;
         intent = 'general';
     }
 
-    
+    const fastMode =
+      intent === 'web' ||
+      intent === 'smalltalk';
+
+    let recentMsgs = [];
+
+    if (!fastMode) {
+
+      recentMsgs =
+        this.sessions.getRecentMessages(
+          sessionId,
+          12
+        );
+
+    } else {
+
+      recentMsgs = [
+        {
+          role: 'user',
+          content: userMessage
+        }
+      ];
+    }
 
     if (intent === 'task') {
 
@@ -1223,292 +1447,7 @@ ${i + 1}. ${t.title}
       };
     }
 
-    if (
-      intent === 'pdf_metadata'
-    ) {
-
-      const documents =
-        await documentService.getAllDocuments(
-          userId
-        );
-
-      if (!documents.length) {
-
-        return {
-          response:
-            'No PDFs uploaded.',
-          sources: []
-        };
-      }
-
-      const names =
-        documents.map(
-          (d, i) =>
-            `${i + 1}. ${d.filename}`
-        ).join('\n');
-
-      const response =
-        `📚 You have uploaded ${documents.length} PDFs:\n\n${names}`;
-
-      this.sessions.addMessage(
-        sessionId,
-        'assistant',
-        response
-      );
-
-      return {
-
-        response,
-
-        sources:
-          documents.map(
-            d => d.filename
-          )
-      };
-    }
-
-    // ─────────────────────────────
-    // FAST SMALL-TALK RESPONSES
-    // ─────────────────────────────
-
-    if (isSmallTalk(userMessage)) {
-
-      const quickReplies = {
-
-        hi: "Hello 👋",
-
-        hello: "Hello 👋",
-
-        hey: "Hey there 🚀",
-
-        yo: "Yo 🚀",
-
-        "good morning":
-          "Good morning ☀️",
-
-        "good evening":
-          "Good evening 🌙",
-
-        "how are you":
-          "I'm functioning perfectly 🚀",
-
-        thanks:
-          "You're welcome 🚀",
-
-        ok:
-          "👍",
-
-        okay:
-          "👍"
-      };
-
-      const normalized =
-        userMessage
-          .trim()
-          .toLowerCase();
-
-      const response =
-        quickReplies[normalized]
-        || "Hello 👋";
-
-      // Store lightweight conversation
-      this.sessions.addMessage(
-        sessionId,
-        'user',
-        userMessage
-      );
-
-      this.sessions.addMessage(
-        sessionId,
-        'assistant',
-        response
-      );
-
-      return {
-
-        response,
-
-        memoryUsed: false,
-
-        knowledgeUsed: false,
-
-        sources: [],
-
-        memoryStats:
-          this.memory.getStats()
-      };
-    }
-
     
-    // Store user message in memory
-    this.memory.add({
-      userId,
-      sessionId,
-      role: 'user',
-      text: userMessage
-    });
-
-    this.memory.extractFacts(userId,userMessage, sessionId);
-
-    this.sessions.addMessage(
-      sessionId,
-      'user',
-      userMessage
-    );
-
-
-
-    // ─────────────────────────────
-    // FAST MODE
-    // ─────────────────────────────
-
-    const fastMode =
-      intent === 'web' ||
-      intent === 'smalltalk';
-
-    let recentMsgs = [];
-
-    if (!fastMode) {
-
-      recentMsgs =
-        this.sessions.getRecentMessages(
-          sessionId,
-          12
-        );
-
-    } else {
-
-      recentMsgs = [
-        {
-          role: 'user',
-          content: userMessage
-        }
-      ];
-      }
-
-
-    // ─────────────────────────────
-    // FAST PDF METADATA QUERIES
-    // ─────────────────────────────
-
-    const normalizedQuery =
-      userMessage
-        .trim()
-        .toLowerCase();
-
-    if (
-      /\bhow many\b.*\b(pdf|pdfs|documents|papers)\b/i.test(
-        normalizedQuery
-      )
-        ){
-
-      const count =
-        await documentService.getDocumentCount(
-          userId
-          );
-      
-      await documentContextService.updateContext(
-        userId,
-        {
-          currentTopic: 'pdf_collection',
-          currentEntity: 'documents',
-          lastIntent: 'pdf_metadata'
-        }
-        );
-
-      const response =
-        `📚 You have uploaded ${count} PDF documents.`;
-
-      this.sessions.addMessage(
-        sessionId,
-        'user',
-        userMessage
-      );
-
-      this.sessions.addMessage(
-        sessionId,
-        'assistant',
-        response
-      );
-
-      return {
-
-        response,
-
-        memoryUsed: false,
-
-        knowledgeUsed: false,
-
-        sources: [],
-
-        memoryStats:
-          this.memory.getStats()
-      };
-      }
-
-    
-
-    if (
-      normalizedQuery.includes('last pdf') ||
-      normalizedQuery.includes('latest pdf') ||
-      normalizedQuery.includes('last uploaded pdf') ||
-      normalizedQuery.includes('name of the last pdf')
-    ) {
-
-      const latest =
-        await documentService.getLatestDocument(
-          userId
-        );
-
-      if (!latest) {
-
-        return {
-          response: 'No PDFs uploaded.',
-          sources: []
-        };
-      }
-
-      
-      await documentContextService
-        .setCurrentDocument(
-          userId,
-          latest.filename
-        );
-      await documentContextService.updateContext(
-        userId,
-        {
-          currentTopic: 'pdf_document',
-          currentEntity: latest.filename,
-          lastIntent: 'pdf_metadata'
-        }
-        );
-
-      const response =
-        `📄 Latest PDF: ${latest.filename}`;
-
-      this.sessions.addMessage(
-        sessionId,
-        'assistant',
-        response
-      );
-
-      return {
-        response,
-        sources: [latest.filename]
-      };
-    }
-
-    // ─────────────────────────────
-    // TRACK PDF SOURCES
-    // ─────────────────────────────
-
-    let pdfSources = [];
-    let pdfChunks = [];
-
-
-
-    const summaryQuery =
-      /summary|summarize|summarise|summawize|overview|contribution|main contribution|what is this paper about|describe|explain/i;
 
 
     // ADD THIS BLOCK HERE ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
@@ -1520,10 +1459,22 @@ ${i + 1}. ${t.title}
       );
 
     if (
-      summaryQuery.test(userMessage) &&
       targetDocument &&
-      targetDocument.summary
-    ) {
+      targetDocument.summary &&
+      (
+        pdfIntent.intent === 'paper_summary'
+        ||
+        userMessage.toLowerCase().includes('contribution')
+        ||
+        userMessage.toLowerCase().includes('methodology')
+        ||
+        userMessage.toLowerCase().includes('limitations')
+        ||
+        userMessage.toLowerCase().includes('novelty')
+        ||
+        userMessage.toLowerCase().includes('main idea')
+      )
+      ) {
 
       console.log(
         '📄 Returning stored document summary'
@@ -1563,7 +1514,8 @@ ${i + 1}. ${t.title}
 
     if (
       intent === 'rag' &&
-      !summaryQuery.test(userMessage)
+      pdfIntent.intent !==
+      'paper_summary'
     ) {
 
       pdfChunks =
@@ -1587,7 +1539,7 @@ ${i + 1}. ${t.title}
 
 console.log(
   '📄 Summary Query:',
-  summaryQuery.test(userMessage)
+  pdfIntent.intent === 'paper_summary'
 );
     const systemPrompt =
       await this.buildSystemPrompt(
@@ -2025,6 +1977,32 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', memoryStats: agent.memory.getStats() });
 });
 
+
+
+app.get(
+  '/api/pdf/progress',
+
+  authMiddleware,
+
+  (req, res) => {
+
+    const progress =
+      uploadProgress.get(
+        req.user.userId
+      );
+
+    res.json(
+      progress || {
+        status: 'idle',
+        current: 0,
+        total: 0,
+        percent: 0
+      }
+    );
+  }
+);
+
+
 // ─────────────────────────────────────────────
 // AUTH ROUTES
 // ─────────────────────────────────────────────
@@ -2148,7 +2126,19 @@ app.post(
 
   async (req, res) => {
 
+    console.log("📄 Upload request received");
+
     try {
+
+      console.log(
+        "📄 File received:",
+        req.file?.originalname
+      );
+
+      console.log(
+        "📄 File size:",
+        req.file?.size
+      );
 
       if (!req.file) {
 
@@ -2156,6 +2146,15 @@ app.post(
           error: 'No PDF uploaded'
         });
       }
+      uploadProgress.set(
+        req.user.userId,
+        {
+          status: 'Extracting PDF Text',
+          current: 0,
+          total: 0,
+          percent: 0
+        }
+      );
 
       // Read uploaded PDF
       const dataBuffer =
@@ -2172,6 +2171,16 @@ app.post(
 
       const fullText =
         pdfData.text;
+
+      uploadProgress.set(
+        req.user.userId,
+        {
+          status: 'Creating Chunks',
+          current: 0,
+          total: 0,
+          percent: 5
+        }
+        );
 
       // ─────────────────────────────
       // CHUNKING
@@ -2208,12 +2217,22 @@ app.post(
       // ─────────────────────────────
       // GENERATE EMBEDDINGS
       // ─────────────────────────────
-
+      console.log(
+        "📄 Starting PDF processing"
+      );
       console.log(
         '🧠 Generating chunk embeddings...'
       );
+      const pointsBatch = [];
 
-      for (const chunk of chunks) {
+      for (
+        let i = 0;
+        i < chunks.length;
+        i++
+      ) {
+
+        const chunk =
+          chunks[i];
 
         chunk.embedding =
           await createEmbedding(
@@ -2223,11 +2242,10 @@ app.post(
         if (!chunk.text?.trim())
           continue;
 
-        await qdrantService.storeChunk({
+        pointsBatch.push({
 
           id:
-            Date.now() +
-            chunk.chunkIndex,
+            Date.now() * 1000 + i,
 
           vector:
             chunk.embedding,
@@ -2250,7 +2268,51 @@ app.post(
               chunk.relativePosition
           }
         });
+        if (
+          pointsBatch.length >= 50
+        ) {
+
+          await qdrantService.storeChunks(
+            pointsBatch
+          );
+
+          pointsBatch.length = 0;
+        }
+        const percent =
+          chunks.length > 0
+            ? Math.floor(
+              ((i + 1) / chunks.length) * 80
+            ) + 10
+            : 10; 
+
+        uploadProgress.set(
+          req.user.userId,
+          {
+            status:
+              'Generating Embeddings',
+
+            current:
+              i + 1,
+
+            total:
+              chunks.length,
+
+            percent
+          }
+        );
+        ;
       }
+
+      if (
+        pointsBatch.length > 0
+      ) {
+
+        await qdrantService.storeChunks(
+          pointsBatch
+        );
+      }
+
+      
 
       console.log(
         '✅ Embeddings generated'
@@ -2264,6 +2326,22 @@ app.post(
         'Summary unavailable';
 
       try {
+
+        uploadProgress.set(
+          req.user.userId,
+          {
+            status:
+              'Generating Summary',
+
+            current:
+              chunks.length,
+
+            total:
+              chunks.length,
+
+            percent: 95
+          }
+        );
 
         console.log(
           '📝 Generating PDF summary...'
@@ -2425,6 +2503,18 @@ ${fullText.substring(0, 8000)}
       console.log(
         '📄 Current document set:',
         req.file.originalname
+      );
+
+      uploadProgress.set(
+        req.user.userId,
+        {
+          status: 'Completed',
+          current:
+            chunks.length,
+          total:
+            chunks.length,
+          percent: 100
+        }
       );
 
       res.json({

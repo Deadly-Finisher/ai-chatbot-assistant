@@ -18,6 +18,23 @@ PDF_SEARCH
 MEMORY
 TASKS
 
+IMPORTANT RULES:
+
+If the user asks about a document,
+paper,
+PDF,
+research paper,
+uploaded file,
+or a currently active document,
+
+ALWAYS prefer PDF_SEARCH.
+
+Do NOT choose WEB_SEARCH if the
+information is available in uploaded PDFs.
+
+WEB_SEARCH should only be used when
+the answer is not available in uploaded documents.
+
 Current State:
 ${JSON.stringify(state, null, 2)}
 

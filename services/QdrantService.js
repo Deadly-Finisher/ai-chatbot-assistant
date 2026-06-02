@@ -15,6 +15,18 @@ class QdrantService {
             }
         );
     }
+    async storeChunks(
+        points
+    ) {
+
+        await client.upsert(
+            'pdf_embeddings',
+            {
+                wait: true,
+                points
+            }
+        );
+    }
 
     async search(
         vector,

@@ -6,6 +6,7 @@
 const API = `${window.location.origin}/api`;
 // ── State ──────────────────────────────────────
 let currentSessionId = null;
+let uploadStartTime = 0;
 
 let authToken =
   localStorage.getItem('token') || null;
@@ -68,6 +69,124 @@ const taskList =
     'task-list'
   );
 
+const progressContainer =
+  document.getElementById(
+    'upload-progress-container'
+  );
+
+const progressFill =
+  document.getElementById(
+    'upload-progress-fill'
+  );
+
+const progressText =
+  document.getElementById(
+    'upload-progress-text'
+  );
+
+const progressTitle =
+  document.getElementById(
+    'upload-progress-title'
+  );
+
+let progressInterval =
+  null;
+
+function startProgressPolling(
+  filename
+) {
+
+  progressContainer.style.display =
+    'block';
+
+  progressTitle.textContent =
+    filename;
+
+  uploadStartTime =
+    Date.now();
+
+  progressInterval =
+    setInterval(
+      async () => {
+
+        try {
+
+          const res =
+            await fetch(
+              `${API}/pdf/progress`,
+              {
+                headers: {
+                  Authorization:
+                    `Bearer ${authToken}`
+                }
+              }
+            );
+
+          const data =
+            await res.json();
+
+          const progress =
+            data.total > 0
+              ? data.current / data.total
+              : 0;
+
+          const elapsed =
+            (Date.now() - uploadStartTime)
+            / 1000;
+
+          const estimatedTotal =
+            progress > 0
+              ? elapsed / progress
+              : 0;
+
+          const remaining =
+            Math.max(
+              0,
+              Math.round(
+                estimatedTotal - elapsed
+              )
+            );
+
+          progressFill.style.width =
+            `${data.percent}%`;
+
+          progressTitle.textContent =
+            `${filename}
+             •
+             ${data.status}`;
+
+          progressText.textContent =
+            `${data.current}/${data.total}
+              (${data.percent}%)
+              •
+              ${remaining}s remaining`;
+
+          if (
+            data.percent >= 100
+          ) {
+
+            clearInterval(
+              progressInterval
+            );
+
+            setTimeout(
+              () => {
+
+                progressContainer.style.display =
+                  'none';
+
+              },
+              3000
+            );
+          }
+
+        } catch { }
+      },
+
+      1000
+    );
+}
+
 // ─────────────────────────────────────────────
 // PDF Upload
 // ─────────────────────────────────────────────
@@ -99,9 +218,13 @@ pdfUploadInput.addEventListener(
 
     try {
 
-      appendMessage(
-        'assistant',
-        `📄 Uploading ${file.name}...`
+      const uploadStatusMessage =
+        appendMessage(
+          'assistant',
+          `📄 Uploading ${file.name}...`
+        );
+      startProgressPolling(
+        file.name
       );
 
       const res =
@@ -122,11 +245,52 @@ pdfUploadInput.addEventListener(
       const data =
         await res.json();
 
+      let statusEmoji = '📄';
+
+      switch (data.status) {
+
+        case 'Extracting PDF Text':
+          statusEmoji = '📖';
+          break;
+
+        case 'Creating Chunks':
+          statusEmoji = '✂️';
+          break;
+
+        case 'Processing Chunks':
+          statusEmoji = '🧠';
+          break;
+
+        case 'Generating Summary':
+          statusEmoji = '📝';
+          break;
+
+        case 'Completed':
+          statusEmoji = '✅';
+          break;
+        }
+
+      const statusElement =
+        document.getElementById(
+          'upload-progress-title'
+        );
+
+      statusElement.textContent =
+        `${statusEmoji} ${data.status}`;
+
       if (data.success) {
 
         appendMessage(
           'assistant',
-          `✅ PDF uploaded successfully!\n\nDocument: ${data.filename}\nChunks created: ${data.chunks}`
+          `✅ Upload Complete
+        
+        📄 Document:
+        ${data.filename}
+        
+        🧩 Chunks:
+        ${data.chunks}
+        
+        📚 Added to knowledge base`
         );
 
       } else {
@@ -143,7 +307,9 @@ pdfUploadInput.addEventListener(
 
       appendMessage(
         'assistant',
-        '❌ PDF upload failed'
+        `❌ PDF upload failed
+      
+      ${err.message}`
       );
     }
   }
