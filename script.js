@@ -126,6 +126,11 @@ function startProgressPolling(
           const data =
             await res.json();
 
+          console.log(
+            'POLLING:',
+            data
+            );
+
           const progress =
             data.total > 0
               ? data.current / data.total
@@ -176,7 +181,8 @@ function startProgressPolling(
                 () => {
 
                   console.log(
-                    'HIDING PROGRESS BAR'
+                    'HIDING PROGRESS BAR',
+                    new Date().toISOString()
                   );
 
                   progressContainer.style.display =
@@ -233,6 +239,10 @@ pdfUploadInput.addEventListener(
 
       // RESET OLD PROGRESS
       clearInterval(progressInterval);
+
+      clearTimeout(
+        progressHideTimeout
+      );
 
       progressFill.style.width = '0%';
 
