@@ -6,6 +6,7 @@
 const API = `${window.location.origin}/api`;
 // ── State ──────────────────────────────────────
 let currentSessionId = null;
+let progressHideTimeout = null;
 let uploadStartTime = 0;
 
 let authToken =
@@ -170,15 +171,20 @@ function startProgressPolling(
               progressInterval
             );
 
-            setTimeout(
-              () => {
+            progressHideTimeout =
+              setTimeout(
+                () => {
 
-                progressContainer.style.display =
-                  'none';
+                  console.log(
+                    'HIDING PROGRESS BAR'
+                  );
 
-              },
-              3000
-            );
+                  progressContainer.style.display =
+                    'none';
+
+                },
+                3000
+              );
               }
 
         } catch { }
