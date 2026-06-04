@@ -2517,6 +2517,14 @@ ${fullText.substring(0, 8000)}
         }
       );
 
+      setTimeout(() => {
+
+        uploadProgress.delete(
+          req.user.userId
+        );
+
+      }, 10000);
+
       res.json({
 
         success: true,

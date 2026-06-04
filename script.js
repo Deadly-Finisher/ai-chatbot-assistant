@@ -162,7 +162,8 @@ function startProgressPolling(
               ${remaining}s remaining`;
 
           if (
-            data.percent >= 100
+            data.percent >= 100 &&
+            data.status === 'Completed'
           ) {
 
             clearInterval(
@@ -178,7 +179,7 @@ function startProgressPolling(
               },
               3000
             );
-          }
+              }
 
         } catch { }
       },
@@ -223,6 +224,17 @@ pdfUploadInput.addEventListener(
           'assistant',
           `📄 Uploading ${file.name}...`
         );
+
+      // RESET OLD PROGRESS
+      clearInterval(progressInterval);
+
+      progressFill.style.width = '0%';
+
+      progressText.textContent = '0%';
+
+      progressContainer.style.display =
+        'block';
+
       startProgressPolling(
         file.name
       );
@@ -244,6 +256,11 @@ pdfUploadInput.addEventListener(
 
       const data =
         await res.json();
+
+      console.log(
+        'Progress:',
+        data
+        );
 
       let statusEmoji = '📄';
 
